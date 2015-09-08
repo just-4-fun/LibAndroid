@@ -2,14 +2,12 @@ package just4fun.android.core.vars
 
 import scala.language.implicitConversions
 import scala.language.experimental.macros
+
 import android.os.Bundle
-import just4fun.android.core.app.{ActivityModule, Modules, TwixModule, Module}
-import just4fun.android.core.async.{ThreadPoolContext$, FutureX}
+import just4fun.android.core.app.{ActivityModule, Module, Modules}
+import just4fun.android.core.async.{FutureX, ThreadPoolContext}
 import just4fun.core.schemify._
 import just4fun.utils.schema.SchemaType
-
-import scala.collection.mutable
-
 
 /* VAR */
 trait Var[T] {
@@ -42,7 +40,6 @@ object PrefVar {
 }
 
 final class PrefVar[T] private (val name: String)(implicit typ: PropType[T]) extends SyncVar[T] {
-	import PrefVar._
 	private[this] var value: T = null.asInstanceOf[T]
 	private[this] var inited = false
 	/** WARN: Calling before Application.onCreate throws error as SharedPreferences is not yet inited. */

@@ -5,24 +5,27 @@ import android.database.sqlite.{SQLiteConstraintException, SQLiteDatabase}
 import just4fun.android.core.app.Module
 import just4fun.android.core.async.{FutureX, FutureContext}
 import just4fun.android.core.vars.Prefs
-import just4fun.utils.devel.ILogger._
+import just4fun.utils.logger.Logger
+import Logger._
 import scala.util.{Try, Failure, Success}
 
 abstract class DbTableModule[DB <: DbModule : Manifest, T <: DbObject : Manifest] extends Module {
 	implicit val schema: DbSchema[T]
-	val name: String = getClass.getSimpleName
-	protected[this] def indexes: Set[DbTableIndex] = Set.empty
-	protected[this] def upgrades: Seq[DbTableUpgrade] = List.empty
-	var db = unchecked_dependOn[DB]
+	protected[this] val db = unchecked_dependOn[DB]
 	override implicit val futureContext: FutureContext = db.futureContext
 	setPassiveMode()
 
+	protected[this] def indexes: Set[DbTableIndex] = Set.empty
+	protected[this] def upgrades: Seq[DbTableUpgrade] = List.empty
 
 	/* LIFECYCLE */
-	override protected[this] def onStartActivating(firstTime: Boolean): Unit = if (firstTime) {
+	override protected[this] def onActivatingStart(firstTime: Boolean): Unit = if (firstTime) {
+		pauseActivatingProgress()
 		open().onCompleteInUiThread {
-			case Success(v) => setActivated()
+			case Success(v) => resumeActivatingProgress()
+				logW(s"###############   RESUME")
 			case Failure(e) => setFailed(e)
+				logW(s"###############   ERR")
 		}
 	}
 
@@ -62,7 +65,7 @@ abstract class DbTableModule[DB <: DbModule : Manifest, T <: DbObject : Manifest
 	protected[this] def in_select(where: String = null, columns: List[Column[T, _]] = null, groupBy: String = null, having: String = null, orderBy: String = null, limit: String = null, distinct: Boolean = false): List[T] = {
 		val cols = if (columns == null) schema.propsReal else if (!columns.contains(schema._id)) schema._id :: columns else columns
 		val colNames = cols.map(_.dbName).toArray
-		val q = db.buildQuery(name, colNames, where, groupBy, having, orderBy, limit, distinct)
+		val q = db.buildQuery(schema.schemaName, colNames, where, groupBy, having, orderBy, limit, distinct)
 		db.in_selectAndClose(q) { cursor =>
 			db.generateFromCursor[T](cursor) {CursorReader.toObject(cursor, schema, cols)}
 		}
@@ -70,22 +73,22 @@ abstract class DbTableModule[DB <: DbModule : Manifest, T <: DbObject : Manifest
 	protected[this] def in_insert(obj: T, replace: Boolean): T = {
 		val vals = ContentValuesWriter.fromObject(obj, schema, schema.propsReal)
 		val conflictAlg = if (replace) SQLiteDatabase.CONFLICT_REPLACE else SQLiteDatabase.CONFLICT_ABORT
-		obj._id = db.in_insert(name, vals, conflictAlg)
+		obj._id = db.in_insert(schema.schemaName, vals, conflictAlg)
 		obj
 	}
 	protected[this] def in_save(obj: T, objOld: T, columns: Iterable[Column[T, _]]): T = {
 		val cols = if (columns == null) schema.propsReal else columns
 		val vals = ContentValuesWriter.fromObject(obj, objOld, schema, cols)
-		if (obj._id > 0) db.in_update(name, vals, s"${schema._id.dbName} = ${obj._id}", null, SQLiteDatabase.CONFLICT_ABORT)
-		else obj._id = db.in_insert(name, vals, SQLiteDatabase.CONFLICT_ABORT)
+		if (obj._id > 0) db.in_update(schema.schemaName, vals, s"${schema._id.dbName} = ${obj._id}", null, SQLiteDatabase.CONFLICT_ABORT)
+		else obj._id = db.in_insert(schema.schemaName, vals, SQLiteDatabase.CONFLICT_ABORT)
 		obj
 	}
 	protected[this] def in_delete(objects: T*): Int = {
 		val where = objects.map(o => o._id).mkString(s"${schema._id.dbName} in(", ",", ")")
-		db.in_delete(name, where)
+		db.in_delete(schema.schemaName, where)
 	}
 	protected[this] def in_delete(where: String): Int = {
-		db.in_delete(name, where)
+		db.in_delete(schema.schemaName, where)
 	}
 
 	protected[this] def open(): FutureX[Unit] = FutureX {
@@ -98,6 +101,7 @@ abstract class DbTableModule[DB <: DbModule : Manifest, T <: DbObject : Manifest
 	/* START HELPER */
 
 	private class TableStarter {
+		val name = schema.schemaName
 		var version = Prefs[Int](s"$name version")
 		val columnTypes = loadTypes()
 		val newSize = columnTypes.length

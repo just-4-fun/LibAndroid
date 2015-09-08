@@ -6,13 +6,14 @@ import java.util.concurrent._
 
 import android.os._
 import just4fun.android.core.app.Modules
-import just4fun.utils.devel.ILogger._
+import just4fun.utils.logger.Logger
+import Logger._
 
 import scala.concurrent.ExecutionContext
 
 
 /* INTERFACE */
-trait FutureContext extends ExecutionContext with Loggable {
+trait FutureContext extends ExecutionContext  {
 	def execute[T](id: Any, delayMs: Long, replace: Boolean, runnable: Runnable): Unit = {
 		if (replace && id != null) cancel(id)
 		if (id == null && delayMs == 0) execute(runnable)
@@ -51,7 +52,7 @@ class HandlerContext(name: String, mainThread: Boolean = true) extends FutureCon
 			override def dispatchMessage(msg: Message): Unit = msg.getCallback match {
 				case r: Runnable => handle(r)
 				case null if msg.what == QUIT => quit()
-				case _ => logW(s" Unknown callback:  what= ${msg.what}, token= ${msg.obj}", "ASYNC")
+				case _ => logW(s" Unknown callback:  what= ${msg.what}, token= ${msg.obj}")
 			}
 		}
 	}
@@ -72,11 +73,13 @@ class HandlerContext(name: String, mainThread: Boolean = true) extends FutureCon
 		case r: Runnable => handler.removeCallbacks(r)
 		case id => if (id != null) handler.removeCallbacksAndMessages(id)
 	}
-	override def quit(safely: Boolean = false) = if (handler != null) synchronized {
-		if (mainThread) clear()
-		else if (safely) handler.sendEmptyMessage(QUIT)
-		else handler.getLooper.quit()
-		handler = null
+	override def quit(safely: Boolean = false) = synchronized {
+		if (handler != null)  {
+			if (mainThread) clear()
+			else if (safely) handler.sendEmptyMessage(QUIT)
+			else handler.getLooper.quit()
+			handler = null
+		}
 	}
 	override def clear(): Unit = if (isAlive) {
 		handler.removeCallbacksAndMessages(null)
@@ -168,11 +171,13 @@ object ThreadPoolContext extends FutureContext {
 			case id => if (id != null) handler.removeCallbacksAndMessages(id)
 		}
 	}
-	override def quit(softly: Boolean = false): Unit = if (executor != null) synchronized {
-		handler.removeCallbacksAndMessages(null)
-		if (softly) executor.shutdown() else executor.shutdownNow()
-		executor = null
-		handler = null
+	override def quit(softly: Boolean = false): Unit = synchronized {
+		if (executor != null) {
+			handler.removeCallbacksAndMessages(null)
+			if (softly) executor.shutdown() else executor.shutdownNow()
+			executor = null
+			handler = null
+		}
 	}
 	override def clear(): Unit = if (isAlive) {
 		import scala.collection.JavaConverters._

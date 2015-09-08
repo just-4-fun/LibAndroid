@@ -1,11 +1,12 @@
 package just4fun.android.core.app
 
 import just4fun.android.core.async.Tiker
-import just4fun.utils.devel.ILogger._
+import just4fun.utils.logger.Logger
+import Logger._
 
 import scala.collection.mutable
 
-private[app] object ModuleTiker extends Tiker with Loggable {
+private[app] object ModuleTiker extends Tiker  {
 	private val manager = Modules.mManager
 	private val UPDATE = 0xf0
 	/*todo test */ var requests = 0

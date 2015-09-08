@@ -1,5 +1,7 @@
 package just4fun.android.core.app
 
+import just4fun.utils.logger.Logger
+
 import scala.collection.mutable
 import scala.language.existentials
 
@@ -10,10 +12,10 @@ import just4fun.android.core.app.Module.RestoreAfterCrashPolicy.IF_SELF_BOUND
 import just4fun.android.core.async.ThreadPoolContext
 import just4fun.android.core.vars.Prefs
 import just4fun.core.schemify.PropType
-import just4fun.utils.devel.ILogger._
+import Logger._
 import just4fun.utils.schema.ListType
 
-private[app] class ModuleManager(app: Application) extends Loggable {
+private[app] class ModuleManager(app: Application) {
 
 	private[this] val modules = mutable.ArrayBuffer[Module]()
 	private[this] val subs = mutable.HashMap[Class[_], Class[_]]()
@@ -71,7 +73,7 @@ private[app] class ModuleManager(app: Application) extends Loggable {
 		Modules.onExit()
 		PropType.onAppExit()
 		ThreadPoolContext.quit()
-		logV(s"***************                                                              APP   EXITED  rc=${Module.FwCWe434fREt}")
+		logV(s"<<<<<<<<<<<<<<<<<<<<                    APP   EXITED                    >>>>>>>>>>>>>>>>>>>>")
 	}
 
 	/* MISC EVENTS */
@@ -141,8 +143,13 @@ private[app] class ModuleManager(app: Application) extends Loggable {
 
 
 /* EXCEPTIONS */
-object ModuleInactiveException extends Exception("Module cannot execute request because it's not yet activated.")
+class ModuleException(message: String) extends Exception(message) {
+	def this() = this("")
+}
 
-case class DependencyParentException(m: Module) extends Exception(s"Dependency parent ${m.moduleID} failed with  ${m.failure.foreach(_.getMessage)}")
+object ModuleInactiveException extends ModuleException("Module cannot execute request because it's not yet activated.")
 
-case class CyclicUsageException(trace: String) extends Exception(s"Cyclic usage detected in chain [$trace]")
+case class DependencyParentException(m: Module) extends ModuleException(s"Dependency parent ${m.moduleID} failed with  ${m.failure.foreach(_.getMessage)}")
+
+case class CyclicUsageException(trace: String) extends ModuleException(s"Cyclic usage detected in chain [$trace]")
+

@@ -4,9 +4,10 @@ import android.os.Bundle
 import just4fun.android.core.app.{Module, TwixActivity, TwixModule}
 import just4fun.android.core.vars.Prefs
 import just4fun.android.libtest.{R, TestModule}
-import just4fun.utils.devel.ILogger._
+import just4fun.utils.logger.Logger
+import Logger._
 
-class TestActivity extends TwixActivity[TestActivity, MainModule] with Loggable {
+class TestActivity extends TwixActivity[TestActivity, MainModule]  {
 	implicit val context = this
 	override def onCreate(savedInstanceState: Bundle) {
 		super.onCreate(savedInstanceState)
@@ -19,13 +20,11 @@ class MainModule extends TwixModule[TestActivity, MainModule]
 //with NewThreadFeature
 //with ParallelThreadFeature
 with TestModule {
-	override val activatingTimeout = 10000
-	override val deactivatingTimeout = 10000
 	startAfter = 1000
 	stopAfter = 1000
 	val u1 = bind[UserModule_1]
 	val u2 = bind[UserModule_2]
-	override protected[this] def onFinishActivating(firstTime: Boolean): Unit = {
+	override protected[this] def onActivatingFinish(firstTime: Boolean): Unit = {
 		u1.startUse()
 		u2.startUse()
 	}
@@ -46,7 +45,7 @@ abstract class MetaUserModule[M <: MetaModule: Manifest] extends Module with Tes
 	stopAfter = 1000
 	setPassiveMode()
 	val m = dependOn[M]
-	override protected[this] def onFinishActivating(firstTime: Boolean): Unit = {
+	override protected[this] def onActivatingFinish(firstTime: Boolean): Unit = {
 		logV(s"<<<<<<<<<<<<<  ACTIVE [${getClass.getSimpleName}]  >>>>>>>>>>>>>")
 	}
 	def startUse(): Unit = execAsync{

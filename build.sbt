@@ -3,7 +3,7 @@ lazy val root = project.in(file("."))
       name := "LibAndroid"
       , organization := "just4fun"
       , version := "1.0-SNAPSHOT"
-      , scalaVersion := "2.11.6"
+      , scalaVersion := "2.11.7"
       , licenses := Seq("BSD-style" -> url("http://www.opensource.org/licenses/bsd-license.php"))
       , homepage := Some(url("https://github.com/just-4-fun"))
       , scalacOptions in Compile += "-feature"
@@ -27,12 +27,13 @@ lazy val lib = project.in(file("Lib"))
   )
   .settings(proguardSettings: _*)
   .settings(testSettings: _*)
-  .settings(dependencies)
+  .settings(dependencies: _*)
   .dependsOn(utils)
 
 lazy val test = project.in(file("Test"))
   .settings(commonSettings: _*)
   .settings(paradiseSettings: _*)
+  .settings(dependencies: _*)
   .settings(
       name := "Test"
       , minSdkVersion := "14"
@@ -46,7 +47,7 @@ lazy val test = project.in(file("Test"))
 lazy val utils = RootProject(file("../../Utils"))
 
 lazy val commonSettings = Seq(
-	scalaVersion := "2.11.6"
+	scalaVersion := "2.11.7"
 	, platformTarget in Android := "android-22"
 	, typedResources in Android := false
 	, scalacOptions in Compile += "-feature"
@@ -62,6 +63,7 @@ lazy val testSettings = Seq(
 )
 
 lazy val dependencies = Seq(
+     libraryDependencies += "just4fun" %% "logger" % "1.0-SNAPSHOT"
 	//	, libraryDependencies += "just4fun" %% "utils" % "1.0-SNAPSHOT"
 )
 

@@ -6,11 +6,13 @@ import just4fun.android.core.sqlite.{DbModule, DbTableModule, DbSchema, DbObject
 import just4fun.android.core.vars.Prefs
 import just4fun.android.libtest.{TestModule, R}
 import just4fun.core.schemify.Schemify
-import just4fun.utils.devel.ILogger._
+import just4fun.utils.logger.Logger
+import Logger._
+import just4fun.utils.schema.SchemaType
 
 import scala.util.{Failure, Success}
 
-class TestActivity extends TwixActivity[TestActivity, MainModule] with Loggable {
+class TestActivity extends TwixActivity[TestActivity, MainModule] {
 	implicit val context = this
 	override def onCreate(savedInstanceState: Bundle) {
 		super.onCreate(savedInstanceState)
@@ -23,8 +25,6 @@ class MainModule extends TwixModule[TestActivity, MainModule]
 //with NewThreadFeature
 //with ParallelThreadFeature
 with TestModule {
-	override val activatingTimeout = 10000
-	override val deactivatingTimeout = 10000
 	startAfter = 1000
 	stopAfter = 1000
 	var time = 0L
@@ -33,8 +33,8 @@ with TestModule {
 	def resetTime() = time = System.currentTimeMillis()
 	def timeDiff: Long = { val t = System.currentTimeMillis() - time; resetTime(); t }
 
-	override protected[this] def onFinishActivating(firstTime: Boolean): Unit = {
-		logV(s"<<< VERSION ${Prefs[Int](s"${testTab.name} version")}")
+	override protected[this] def onActivatingFinish(firstTime: Boolean): Unit = {
+		logV(s"<<< VERSION ${Prefs[Int](s"${testTab.schema.schemaName} version")}")
 		resetTime()
 		testTab.save(new TestObject(System.currentTimeMillis(), System.currentTimeMillis(), "ok"))
 		  .thanTaskSeq { obj =>
@@ -57,6 +57,7 @@ with TestModule {
 			testTab.delete(obj)
 		}.onComplete {
 			case Success(res) => logV(s"<<< DELETED $res >>>>>>>>>>>>> $timeDiff")
+				logV(s"<<< PROPS ${testTab.schema.props.mkString(", ")}")
 			case Failure(e) => logE(e)
 		}
 //		//
@@ -87,17 +88,27 @@ with TestModule {
 class TestTable extends DbTableModule[DbModule, TestObject] {
 	implicit val schema = TestSchema
 	import schema._
-	override protected[this] def indexes = Set(DbTableIndex(schema.name))
-	override protected[this] def upgrades = List(DbTableUpgrade(3, s"UPDATE $name SET x3 = NULL"))
+	override protected[this] def indexes = Set(DbTableIndex(name))
+	override protected[this] def upgrades = List(DbTableUpgrade(3, s"UPDATE ${schemaName} SET x3 = NULL"))
 }
 
-@Schemify object TestSchema extends DbSchema[TestObject] {
+@Schemify object TestSchema extends DbSchema[TestObject] with BlaSchema[TestObject] {
 	val x = PROP[Long]
 	val y = PROP[Double]
 	val name = PROP[String]
-//	val isOk = PROP[Boolean]
+	val isOk = STUB
 }
 
-class TestObject(var x: Long, var y: Double, var name: String) extends DbObject {
+class TestObject(var x: Long, var y: Double, var name: String) extends DbObject  with BlaObj{
 	var isOk = true
 }
+
+
+trait BlaObj {
+	var p0 = 0
+}
+
+trait BlaSchema[T <: BlaObj] extends just4fun.core.schemify.SchemaType[T] {
+	val p0 = PROP[Int]
+}
+

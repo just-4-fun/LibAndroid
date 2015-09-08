@@ -1,12 +1,14 @@
 package just4fun.android.core.app
 
+import just4fun.utils.logger.Logger
+
 import scala.collection.mutable
 
 import android.app.{Application, Activity}
 import android.app.Application.ActivityLifecycleCallbacks
 import android.os.Bundle
 import just4fun.utils.Utils
-import just4fun.utils.devel.ILogger._
+import Logger._
 
 object ActivityState extends Enumeration {
 	val NONE, CREATED, STARTED, RESUMED, PAUSED, STOPPED, DESTROYED = Value
@@ -19,7 +21,7 @@ object UiEvent extends Enumeration {
 
 
 
-private[app] class ActivityManager(app: Application, mMgr: ModuleManager) extends ActivityLifecycleCallbacks with Loggable {
+private[app] class ActivityManager(app: Application, mMgr: ModuleManager) extends ActivityLifecycleCallbacks  {
 	import ActivityState._
 	private var activity: Activity = _
 	private var state: ActivityState.Value = NONE
@@ -95,7 +97,7 @@ private[app] class ActivityManager(app: Application, mMgr: ModuleManager) extend
 	private def reason(a: Activity): String = if (uiEvent != UiEvent.NONE) uiEvent.toString else if (a.isFinishing) "finishing" else if (reconfiguring) "reconfiguring" else "replacing"
 
 	private def fireActivityEvent(e: ActivityEvent): Unit = {
-		logV(e.toString, "ActivityEvent")
+		logV(e.toString)
 		// todo fire event
 	}
 	private def fireUiEvent(): Unit = if (uiEvent != UiEvent.NONE) {

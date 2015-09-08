@@ -1,13 +1,14 @@
 package just4fun.android.core.app
 
 import android.app.Notification
-import android.content.Intent
 import android.app.Service.{START_FLAG_REDELIVERY, START_FLAG_RETRY}
-import android.os.{IBinder, Bundle}
-import just4fun.android.core.async.{ThreadPoolContext$, FutureX}
-import just4fun.utils.devel.ILogger._
+import android.content.Intent
+import android.os.{Bundle, IBinder}
+import just4fun.android.core.async.{FutureX, ThreadPoolContext}
+import just4fun.utils.logger.Logger
+import Logger._
 
-private[app] object KeepAliveService extends Loggable{
+private[app] object KeepAliveService {
 	private var daemon: android.app.Service = _
 	private var keepAliveForeground = false
 	def startForeground(id: Int, notification: Notification): Unit = {

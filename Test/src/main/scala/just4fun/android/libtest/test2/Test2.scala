@@ -6,12 +6,13 @@ import just4fun.android.core.app.Module.RestoreAfterCrashPolicy
 import just4fun.android.core.app.{TwixActivity, Module, TwixModule, Modules}
 import just4fun.android.core.async.{OwnThreadContextHolder, FutureX, NewThreadContextHolder}
 import just4fun.android.libtest.{TestModule, R}
-import just4fun.utils.devel.ILogger._
+import just4fun.utils.logger.Logger
+import Logger._
 
 import scala.concurrent.Future
 import scala.util.{Success, Failure}
 
-class TestActivity extends TwixActivity[TestActivity, MainModule] with Loggable {
+class TestActivity extends TwixActivity[TestActivity, MainModule] {
 	implicit val context = this
 	override def onCreate(savedInstanceState: Bundle) {
 		super.onCreate(savedInstanceState)
@@ -24,8 +25,6 @@ class MainModule extends TwixModule[TestActivity, MainModule]
 //with NewThreadFeature
 //with ParallelThreadFeature
 with TestModule {
-	override val activatingTimeout = 10000
-	override val deactivatingTimeout = 10000
 	startAfter = 1000
 	stopAfter = 1000
 
@@ -50,7 +49,7 @@ with TestModule {
 	val s3 = bind[Module_3]
 	val s4 = bind[Module_4]
 
-	override protected[this] def onFinishActivating(firstTime: Boolean): Unit = {
+	override protected[this] def onActivatingFinish(firstTime: Boolean): Unit = {
 		FutureX.post(delay = 5000) {
 			for (n <- 0 to 0) runRequest3()
 			logV(s"Dump 0  >>>>>>  ${dumpState()}")
@@ -85,7 +84,7 @@ with TestModule {
 class Module_1 extends Module with TestModule
 with NewThreadContextHolder
 //with ParallelThreadFeature
-with Loggable {
+{
 	startAfter = 1000
 	stopAfter = 1000
 	dependOn[Module_2]

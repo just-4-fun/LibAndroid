@@ -1,12 +1,15 @@
 package just4fun.android.core.sqlite
 
+import java.sql.SQLException
+
 import android.content.ContentValues
 import android.database.Cursor
 import android.database.sqlite._
 import just4fun.android.core.app.Module
 import just4fun.android.core.app.Module.StateValue
 import just4fun.android.core.async.{FutureX, OwnThreadContextHolder}
-import just4fun.utils.devel.ILogger._
+import just4fun.utils.logger.Logger
+import Logger._
 import scala.util.{Success, Failure, Try}
 
 
@@ -16,36 +19,42 @@ class DbModule extends Module with OwnThreadContextHolder {
 	setPassiveMode()
 
 	/* LIFECYCLE */
-	override protected[this] def onStartActivating(firstTime: Boolean): Unit = {
+	override protected[this] def onActivatingStart(firstTime: Boolean): Unit = {
+		pauseActivatingProgress()
 		tryOpenDatabase()
 	}
-	override protected[this] def onKeepActivating(firstTime: Boolean): Boolean = {
-		db != null && db.isOpen
+	override protected[this] def onActivatingProgress(firstTime: Boolean, seconds: Int): Boolean = {
+		if (db != null && db.isOpen) true
+		else {
+			tryOpenDatabase()
+			false
+		}
 	}
-	override protected[this] def onFinishDeactivating(lastTime: Boolean): Unit = {
+	override protected[this] def onDeactivatingFinish(lastTime: Boolean): Unit = {
 		db.close()
 		db = null
 	}
 	
-	protected[this] def tryOpenDatabase(): Unit =  {
+	protected[this] def tryOpenDatabase(): Unit = {
 		val dbHelper = new SQLiteOpenHelper(appContext, name, null, 1) {
 			override def onCreate(db: SQLiteDatabase): Unit = {}
 			override def onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int): Unit = {}
 		}
-		 // SQLiteException if the database cannot be opened for writing
-		db =  try dbHelper.getWritableDatabase catch {
-			case e: SQLiteException => logE(e)
-				val resolved = () => {tryOpenDatabase(); setActivated()}
+		/** SQLiteException if the database cannot be opened for writing. Can be: SQLiteCantOpenDatabaseException / SQLiteAccessPermException / SQLiteDatabaseCorruptException / SQLiteDiskIOException / SQLiteFullException / SQLiteOutOfMemoryException /... */
+		db = Try {dbHelper.getWritableDatabase} match {
+			case Success(db) => resumeActivatingProgress(); db
+			case Failure(e: SQLiteException) =>
+				val resolved = () => resumeActivatingProgress()
 				val unresolved = () => setFailed(e)
-				onDatabaseOpenError(e, resolved, unresolved)
+				resolveOpenDatabaseError(e, resolved, unresolved)
 				null
+			case Failure(e) => throw e
 		}
 	}
-		/** Can be: SQLiteCantOpenDatabaseException / SQLiteAccessPermException / SQLiteDatabaseCorruptException / SQLiteDiskIOException / SQLiteFullException / SQLiteOutOfMemoryException ... */
-	protected[this] def onDatabaseOpenError(err: SQLiteException, resolved: () => Unit, unresolved: () => Unit): Unit = {
-		throw err
-	}
 
+	def resolveOpenDatabaseError(e: SQLiteException, resolved: () => Unit, unresolved: () => Unit): Unit = {
+		unresolved()
+	}
 
 
 	/* USAGE */
@@ -123,10 +132,10 @@ class DbModule extends Module with OwnThreadContextHolder {
 import scala.language.implicitConversions
 // TODO Select tab columns where ...
 object Query {
-	implicit def string2query[T<:DbObject](where: String): Query[T] = Query[T](where)
+	implicit def string2query[T <: DbObject](where: String): Query[T] = Query[T](where)
 	//	def apply(where: String):
 }
-case class Query[T<:DbObject](where: String) {
+case class Query[T <: DbObject](where: String) {
 	var table: String = null
 	var cols: Seq[Column[T, _]] = null
 	var grp: String = null

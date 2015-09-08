@@ -3,12 +3,13 @@ package just4fun.android.libtest
 import android.os.Looper
 import just4fun.android.core.app.Module
 import just4fun.android.core.async.{OwnThreadContextHolder, NewThreadContextHolder, Tiker}
-import just4fun.utils.devel.ILogger._
+import just4fun.utils.logger.Logger
+import Logger._
 
 class TikTester extends Module  with OwnThreadContextHolder with TestModule {
 	startAfter = 1000
 	stopAfter = 4000
-	override protected[this] def onFinishActivating(firstTime: Boolean): Unit = {
+	override protected[this] def onActivatingFinish(firstTime: Boolean): Unit = {
 		val t0 = System.nanoTime()
 		execAsync {
 			val limit = 100000

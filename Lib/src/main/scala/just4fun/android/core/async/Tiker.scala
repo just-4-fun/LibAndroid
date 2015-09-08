@@ -1,7 +1,8 @@
 package just4fun.android.core.async
 
 import android.os.{Looper, Message, Handler}
-import just4fun.utils.devel.ILogger._
+import just4fun.utils.logger.Logger
+import Logger._
 
 abstract class Tiker extends Handler(Looper.getMainLooper) {
 	val NO_REPLACE = -1

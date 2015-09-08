@@ -1,10 +1,12 @@
 package just4fun.android.core.async
 
 import java.util.concurrent.CancellationException
+import just4fun.utils.logger.Logger
+
 import scala.language.implicitConversions
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
-import just4fun.utils.devel.ILogger._
+import Logger._
 
 object FutureX extends Enumeration {
 	val NONE, WAIT, EXEC, DONE = Value

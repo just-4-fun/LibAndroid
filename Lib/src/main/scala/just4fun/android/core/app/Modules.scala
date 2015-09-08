@@ -2,18 +2,16 @@ package just4fun.android.core.app
 
 import java.lang.Thread.UncaughtExceptionHandler
 
-import scala.language.experimental.macros
-import android.app.{Notification, Activity, Application}
-import android.content.res.Configuration
-import android.content.{ComponentCallbacks, Context}
-import android.util.Log
-import just4fun.android.core.vars.{Prefs, PrefVar}
-import just4fun.core.schemify.PropType
-import just4fun.utils.devel.ILogger
-import just4fun.utils.devel.ILogger._
-import just4fun.utils.schema.ArrayBufferType
+import just4fun.utils.logger.{Logger, LoggerConfig}
 
-import scala.collection.mutable.ArrayBuffer
+import scala.language.experimental.macros
+
+import android.app.{Activity, Application, Notification}
+import android.content.Context
+import android.content.res.Configuration
+import android.util.Log
+import just4fun.android.core.{LibRoot, BuildConfig}
+import Logger._
 
 /** USAGE
   - extend Application with [[Modules]] trait
@@ -51,31 +49,31 @@ object Modules {
 		exitCode = () => code
 	}
 
-	def bind[M <: Module: Manifest](implicit activity: Activity): M = macro Macros.bindA[M]
-	def unchecked_bind[M <: Module: Manifest](implicit activity: Activity): M = {
+	def bind[M <: Module : Manifest](implicit activity: Activity): M = macro Macros.bindA[M]
+	def unchecked_bind[M <: Module : Manifest](implicit activity: Activity): M = {
 		mManager.moduleBind[M](mManager.getActivityModule(activity))
 	}
-	def bind[M <: Module: Manifest](clas: Class[M])(implicit activity: Activity): M = macro Macros.bindAC[M]
+	def bind[M <: Module : Manifest](clas: Class[M])(implicit activity: Activity): M = macro Macros.bindAC[M]
 	def unchecked_bind[M <: Module : Manifest](clas: Class[M])(implicit activity: Activity): M = {
 		mManager.moduleBind[M](clas, mManager.getActivityModule(activity))
 	}
-	def unbind[M <: Module: Manifest](implicit activity: Activity): Unit = macro Macros.unbindA[M]
-	def unchecked_unbind[M <: Module: Manifest](implicit activity: Activity): Unit = {
+	def unbind[M <: Module : Manifest](implicit activity: Activity): Unit = macro Macros.unbindA[M]
+	def unchecked_unbind[M <: Module : Manifest](implicit activity: Activity): Unit = {
 		mManager.moduleUnbind[M](mManager.getActivityModule(activity))
 	}
-	def unbind[M <: Module: Manifest](clas: Class[M])(implicit activity: Activity): Unit = macro Macros.unbindAC[M]
+	def unbind[M <: Module : Manifest](clas: Class[M])(implicit activity: Activity): Unit = macro Macros.unbindAC[M]
 	def unchecked_unbind[M <: Module : Manifest](clas: Class[M])(implicit activity: Activity): Unit = {
 		mManager.moduleUnbind[M](clas, mManager.getActivityModule(activity))
 	}
-	def bindSelf[M <: Module: Manifest](implicit context: Context): Unit = macro Macros.bindSelf[M]
-	def unchecked_bindSelf[M <: Module: Manifest](implicit context: Context): Unit = {
+	def bindSelf[M <: Module : Manifest](implicit context: Context): Unit = macro Macros.bindSelf[M]
+	def unchecked_bindSelf[M <: Module : Manifest](implicit context: Context): Unit = {
 		mManager.moduleBind[M](null)
 	}
-	def bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit =  macro Macros.bindSelfC[M]
+	def bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = macro Macros.bindSelfC[M]
 	def unchecked_bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = {
 		mManager.moduleBind[M](clas, null)
 	}
-	def unbindSelf[M <: Module: Manifest](implicit context: Context): Unit = {
+	def unbindSelf[M <: Module : Manifest](implicit context: Context): Unit = {
 		mManager.moduleUnbind[M](null)
 	}
 	def unbindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = {
@@ -89,24 +87,27 @@ object Modules {
 	}
 	def setPreferedModuleClass[SUP <: Module, SUB <: SUP](implicit currentClas: Manifest[SUP], preferedClas: Manifest[SUB]): Unit = {
 		mManager.setPreferedModuleClass(currentClas, preferedClas)
-	}		
-		
-		/**/
-	private  def init(app: Application): Unit = {
+	}
+
+	/**/
+	private def init(app: Application): Unit = {
 		i = app
 		mManager = new ModuleManager(i)
 		aManager = new ActivityManager(i, mManager)
 		mManager.checkRestore()
 	}
 	private[app] def onExit(): Unit = {
-		if (exitCode != null) try exitCode() catch {case e: Throwable => }
+		if (exitCode != null) try exitCode() catch {case e: Throwable =>}
 	}
 }
 
 
 /* ANDROID APP  */
-trait Modules extends Application with Loggable {
-	ILogger.logDef(Log.println(_, _, _))
+trait Modules extends Application {
+	LoggerConfig
+	  .debug(true)
+	  .logDef(Log.println(_, _, _))
+
 	Thread.setDefaultUncaughtExceptionHandler(new UncaughtExceptionHandler {
 		private val sysErrorHandler = Thread.getDefaultUncaughtExceptionHandler
 		override def uncaughtException(thread: Thread, ex: Throwable): Unit = {
@@ -115,14 +116,28 @@ trait Modules extends Application with Loggable {
 			else System.exit(2)
 		}
 	})
-	logV(s"***************                                                              APP   CONSTRUCTED")
 
 	override def onCreate(): Unit = {
 		super.onCreate()
+		LoggerConfig.debug(isDebug)
+		  .addPackageRoot(classOf[LibRoot].getPackage.getName)
+		  .addPackageRoot(getPackageName)
+		logV(s"<<<<<<<<<<<<<<<<<<<<                    APP   CONSTRUCTED                    >>>>>>>>>>>>>>>>>>>>")
 		Modules.init(this)
 	}
 	override def onTrimMemory(level: Int): Unit = Modules.mManager.onTrimMemory(level)
 	override def onConfigurationChanged(newConfig: Configuration): Unit = Modules.mManager.onConfigurationChanged(newConfig)
+
+
+	private[this] def isDebug: Boolean = try {
+		val clas = Class.forName(getPackageName + ".BuildConfig")
+		val valueF = clas.getDeclaredField("DEBUG")
+		valueF.setAccessible(true)
+		valueF.getBoolean(null)
+	}
+	catch {case e: Throwable => println(e); false}
+
+
 }
 
 

@@ -9,9 +9,10 @@ import just4fun.android.core.app.Module.RestoreAfterCrashPolicy
 import just4fun.android.core.app.{Module, TwixActivity, TwixModule}
 import just4fun.android.core.async.{FutureX, NewThreadContextHolder}
 import just4fun.android.libtest.{TestModule, R}
-import just4fun.utils.devel.ILogger._
+import just4fun.utils.logger.Logger
+import Logger._
 
-class TestActivity extends TwixActivity[TestActivity, MainModule] with Loggable {
+class TestActivity extends TwixActivity[TestActivity, MainModule] {
 	implicit val context = this
 	override def onCreate(savedInstanceState: Bundle) {
 		super.onCreate(savedInstanceState)
@@ -28,8 +29,6 @@ class TestActivity extends TwixActivity[TestActivity, MainModule] with Loggable 
 
 class MainModule extends TwixModule[TestActivity, MainModule] with TestModule {
 //	override def restoreAfterCrashPolicy = RestoreAfterCrashPolicy.IF_SELFBOUND
-	override val activatingTimeout = 10000
-	override val deactivatingTimeout = 10000
 	startAfter = 1000
 	stopAfter = 1000
 	//	dependsOn[MainService]
@@ -40,7 +39,7 @@ class MainModule extends TwixModule[TestActivity, MainModule] with TestModule {
 }
 
 
-class Module_1 extends Module with TestModule with NewThreadContextHolder with Loggable {
+class Module_1 extends Module with TestModule with NewThreadContextHolder  {
 	startAfter = 1000
 	stopAfter = 1000
 	dependOn[Module_2]
