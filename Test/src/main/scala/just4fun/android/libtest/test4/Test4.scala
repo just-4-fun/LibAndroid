@@ -1,14 +1,14 @@
 package just4fun.android.libtest.test4
 
 import android.os.Bundle
-import just4fun.android.core.app.{TwixModule, TwixActivity}
+import just4fun.android.core.app.{Modules, TwixModule, TwixActivity}
 import just4fun.android.core.sqlite.{DbModule, DbTableModule, DbSchema, DbObject}
 import just4fun.android.core.vars.Prefs
 import just4fun.android.libtest.{TestModule, R}
 import just4fun.core.schemify.Schemify
 import just4fun.utils.logger.Logger
 import Logger._
-import just4fun.utils.schema.SchemaType
+import just4fun.utils.schema.ReachSchema
 
 import scala.util.{Failure, Success}
 
@@ -28,6 +28,10 @@ with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
 	var time = 0L
+	Modules.use[TestTable].select().onComplete{
+		case Success(list) => logV(s"<<< SELECTED ALL  ${list.length} >>>>>>>>>>>>> ")
+		case Failure(e) => logE(e)
+	}
 	val testTab = bind[TestTable]
 
 	def resetTime() = time = System.currentTimeMillis()

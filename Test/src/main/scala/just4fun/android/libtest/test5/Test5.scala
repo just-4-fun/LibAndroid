@@ -51,7 +51,6 @@ class Module_1 extends Module with TestModule with NewThreadContextHolder {
 	}
 	override protected[this] def onActivatingProgress(firstTime: Boolean, seconds: Int): Boolean = {
 		logV(s"first? $firstTime;  secs: $seconds")
-		logV("(Module.scala:279)")
 		super.onActivatingProgress(firstTime, seconds)
 	}
 	override protected[this] def onDeactivatingProgress(lastTime: Boolean, seconds: Int): Boolean = {

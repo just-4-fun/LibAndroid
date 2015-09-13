@@ -2,7 +2,7 @@ package just4fun.android.core.sqlite
 
 import just4fun.core.schemify.{BytesValueType, OptionType, PropType, StringValueType}
 import just4fun.core.schemify.PropType._
-import just4fun.utils.schema.SchemaType
+import just4fun.utils.schema.ReachSchema
 
 class Column[O <: DbObject, T] protected[sqlite](override val schema: DbSchema[O])(implicit override val typ: PropType[T]) extends just4fun.core.schemify.Prop[O, T](schema) {
 	var constraint: String = _
@@ -25,7 +25,7 @@ class Column[O <: DbObject, T] protected[sqlite](override val schema: DbSchema[O
 
 
 
-abstract class DbSchema[T <: DbObject: Manifest] extends SchemaType[T] {
+abstract class DbSchema[T <: DbObject: Manifest] extends ReachSchema[T] {
 	override type P[t <: T, v] = Column[t, v]
 
 	val _id = PROP[Long].config { c => c.constraint = "PRIMARY KEY AUTOINCREMENT"; c.indexBasedName = false }

@@ -136,7 +136,7 @@ class Module_3 extends Module with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
 	setPassiveMode()
-	dependOn[Module_4]
+	val m4 = dependOn[Module_4]
 }
 
 

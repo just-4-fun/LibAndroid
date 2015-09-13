@@ -4,6 +4,7 @@ import java.lang.Thread.UncaughtExceptionHandler
 
 import just4fun.utils.logger.{Logger, LoggerConfig}
 
+import scala.collection.mutable
 import scala.language.experimental.macros
 
 import android.app.{Activity, Application, Notification}
@@ -37,7 +38,7 @@ NOTE: app ui stopped > low memo > keepAlive killed wo callbacks > after 4 minute
 object Modules {
 	var afterCrash = false // TODO
 
-	private var i: Application = null
+	private var i: Modules = null
 	private[app] var mManager: ModuleManager = null
 	private[app] var aManager: ActivityManager = null
 	private var exitCode: () => Unit = null
@@ -45,10 +46,11 @@ object Modules {
 	/* PUBLIC */
 	lazy val context: Context = i
 	def uiContext = aManager.uiContext
-	def onExited(code: => Unit): Unit = {
-		exitCode = () => code
-	}
 
+	def use[M <: Module : Manifest](implicit context: Context): M = macro Macros.use[M]
+	def unchecked_use[M <: Module : Manifest](implicit context: Context): M = {
+		mManager.moduleObtain[M]
+	}
 	def bind[M <: Module : Manifest](implicit activity: Activity): M = macro Macros.bindA[M]
 	def unchecked_bind[M <: Module : Manifest](implicit activity: Activity): M = {
 		mManager.moduleBind[M](mManager.getActivityModule(activity))
@@ -65,45 +67,42 @@ object Modules {
 	def unchecked_unbind[M <: Module : Manifest](clas: Class[M])(implicit activity: Activity): Unit = {
 		mManager.moduleUnbind[M](clas, mManager.getActivityModule(activity))
 	}
-	def bindSelf[M <: Module : Manifest](implicit context: Context): Unit = macro Macros.bindSelf[M]
-	def unchecked_bindSelf[M <: Module : Manifest](implicit context: Context): Unit = {
-		mManager.moduleBind[M](null)
-	}
-	def bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = macro Macros.bindSelfC[M]
-	def unchecked_bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = {
-		mManager.moduleBind[M](clas, null)
-	}
-	def unbindSelf[M <: Module : Manifest](implicit context: Context): Unit = {
-		mManager.moduleUnbind[M](null)
-	}
-	def unbindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = {
-		mManager.moduleUnbind[M](clas, null)
-	}
+//	def bindSelf[M <: Module : Manifest](implicit context: Context): Unit = macro Macros.bindSelf[M]
+//	def unchecked_bindSelf[M <: Module : Manifest](implicit context: Context): Unit = {
+//		mManager.moduleBind[M](null)
+//	}
+//	def bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = macro Macros.bindSelfC[M]
+//	def unchecked_bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = {
+//		mManager.moduleBind[M](clas, null)
+//	}
+//	def unbindSelf[M <: Module : Manifest](implicit context: Context): Unit = {
+//		mManager.moduleUnbind[M](null)
+//	}
+//	def unbindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = {
+//		mManager.moduleUnbind[M](clas, null)
+//	}
 	def startForeground(id: Int, notification: Notification): Unit = {
 		KeepAliveService.startForeground(id, notification)
 	}
 	def stopForeground(removeNotification: Boolean): Unit = {
 		KeepAliveService.stopForeground(removeNotification)
 	}
-	def setPreferedModuleClass[SUP <: Module, SUB <: SUP](implicit currentClas: Manifest[SUP], preferedClas: Manifest[SUB]): Unit = {
-		mManager.setPreferedModuleClass(currentClas, preferedClas)
-	}
 
 	/**/
-	private def init(app: Application): Unit = {
+	private def init(app: Modules): Unit = {
 		i = app
 		mManager = new ModuleManager(i)
 		aManager = new ActivityManager(i, mManager)
 		mManager.checkRestore()
-	}
-	private[app] def onExit(): Unit = {
-		if (exitCode != null) try exitCode() catch {case e: Throwable =>}
 	}
 }
 
 
 /* ANDROID APP  */
 trait Modules extends Application {
+	/** Value-class replaces Key-class when instantiating [[Module]]. Can be added by overriding. */
+	protected[app] val preferedModuleClasses: mutable.HashMap[Class[_], Class[_]] = null
+
 	LoggerConfig
 	  .debug(true)
 	  .logDef(Log.println(_, _, _))
@@ -127,6 +126,8 @@ trait Modules extends Application {
 	}
 	override def onTrimMemory(level: Int): Unit = Modules.mManager.onTrimMemory(level)
 	override def onConfigurationChanged(newConfig: Configuration): Unit = Modules.mManager.onConfigurationChanged(newConfig)
+
+	protected[app] def onExit(): Unit = {}
 
 
 	private[this] def isDebug: Boolean = try {

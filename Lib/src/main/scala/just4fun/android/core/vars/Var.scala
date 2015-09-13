@@ -7,7 +7,7 @@ import android.os.Bundle
 import just4fun.android.core.app.{ActivityModule, Module, Modules}
 import just4fun.android.core.async.{FutureX, ThreadPoolContext}
 import just4fun.core.schemify._
-import just4fun.utils.schema.SchemaType
+import just4fun.utils.schema.ReachSchema
 
 /* VAR */
 trait Var[T] {
@@ -85,14 +85,14 @@ object FileVar {
 	implicit def var2future[T](v: FileVar[T]): FutureX[T] = v.apply
 	def apply[T](filename: String): FileVar[T] = macro MacroDefs.genFileVar[T]
 	/** WARN: sync refactoring with macros */
-	def apply[T: Manifest](name: String, fileName: => String)(implicit context: Module, typ: SchemaType[T]): FileVar[T] = {
+	def apply[T: Manifest](name: String, fileName: => String)(implicit context: Module, typ: ReachSchema[T]): FileVar[T] = {
 		val v = new FileVar[T](name, fileName)
 		context.registerAsyncVar(v)
 		v
 	}
 }
 
-final class FileVar[T] private (val name: String, fileName: String)(implicit context: Module, typ: SchemaType[T]) extends AsyncVar[T] {
+final class FileVar[T] private (val name: String, fileName: String)(implicit context: Module, typ: ReachSchema[T]) extends AsyncVar[T] {
 	private[this] implicit val futureContext = ThreadPoolContext
 	private[this] var value: FutureX[T] = null.asInstanceOf[FutureX[T]]
 	private[this] var inited = false

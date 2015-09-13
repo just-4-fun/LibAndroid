@@ -1,5 +1,6 @@
 package just4fun.android.core.app
 
+import android.app.Activity
 import just4fun.utils.logger.Logger
 
 import scala.collection.mutable
@@ -17,12 +18,12 @@ import Logger._
 // todo def setStatusNotification
 // todo def setLock / sync
 // TODO onBeforeDeactivate Event
-// todo def onNoRequests >> can reenable suspending
+// todo def onNoRequests >> can re-enable suspending
 
 object Module {
 
 	object StateValue extends Enumeration {
-		val PASSIVE, ACTIVATING, ACTIVE, DEACTIVATING, FAILED, DESTROYED = Value
+		val ACTIVATING, ACTIVE, DEACTIVATING, PASSIVE, FAILED, DESTROYED = Value
 	}
 	
 	object RestoreAfterCrashPolicy extends Enumeration {
@@ -30,7 +31,7 @@ object Module {
 	}
 	
 	private[app] object StateCause extends Enumeration {
-		val BIND_FIRST, BIND_LAST, REQ_FIRST, REQ_LAST, CHECK, FAIL, PASS_OFF, PASS_ON, CH_ADD, CH_ACTIV, CH_DEL, CH_DEACT, PAR_ADD, PAR_DEL, PAR_ACTIV, PAR_FAIL = Value
+		val BIND_FIRST, BIND_LAST, REQ_FIRST, REQ_LAST, UNIQ, CHECK, FAIL, PASS_OFF, PASS_ON, CH_ADD, CH_ACTIV, CH_DEL, CH_DEACT, PAR_ADD, PAR_DEL, PAR_ACTIV, PAR_FAIL = Value
 		// Params: binding, req, activated, failed, suspend, ch_activate, ch_Deactivated, par_activated
 	}
 	
@@ -72,14 +73,14 @@ trait Module extends FutureContextHolder {
 	protected[this] def bindSelf(): Unit = if (isAlive) {
 		manager.moduleBind[this.type](this)
 	}
-	protected[this] def unbindSelf(): Unit = {
-		manager.moduleUnbind[this.type](this)
-	}
 	protected[this] def bind[M <: Module : Manifest]: M = macro Macros.bindS[M]
 	protected[this] def unchecked_bind[M <: Module : Manifest]: M = {
 		val s = manager.moduleBind[M](this)
 		dependParentRemove(s)
 		s
+	}
+	protected[this] def unbindSelf(): Unit = {
+		manager.moduleUnbind[this.type](this)
 	}
 	protected[this] def unbind[M <: Module : Manifest]: Unit = macro Macros.unbindS[M]
 	protected[this] def unchecked_unbind[M <: Module : Manifest]: Unit = {
@@ -103,14 +104,14 @@ trait Module extends FutureContextHolder {
 	
 	protected[app] def restoreAfterCrashPolicy: RestoreAfterCrashPolicy.Value = NEVER
 	
-	def isAlive = state < StateValue.FAILED
+	def isAlive = state < StateValue.FAILED && !engine.terminating
 	def isActive = state == StateValue.ACTIVE
-	def isPassive = state <= StateValue.PASSIVE
-	def isDestroyed = state == StateValue.DESTROYED
+	def isPassive = state == StateValue.PASSIVE
+	def isDestroying = state == StateValue.DESTROYED || engine.terminating
 	def isBound = bindings.nonEmpty
 	def isPassiveModeOn: Boolean = passiveMode
 	
-	def dumpState(): String = s"state= ${state}; bindings= ${bindings.size};  depends= ${dependParents.size}; requests= ${requests.size};  suspend= $passiveMode" // ID=
+	def dumpState(): String = s"state= ${state}; bindings= ${bindings.size};  depends= ${dependParents.size}; requests= ${requests.size};  suspend= $passiveMode;  extremCycle? ${engine.initialising || engine.terminating}"
 	
 	/* Lifecycle CALLBACKS to override */
 	
@@ -170,10 +171,10 @@ trait Module extends FutureContextHolder {
 	}
 	
 	private[app] def bindingAdd(binding: Module): Unit = {
-		val u = if (binding == null) this else binding
-		u.detectCyclicBinding(this, u :: Nil) match {
+		val b = if (binding == null) this else binding
+		b.detectCyclicBinding(this, b :: Nil) match {
 			case Nil => val first = bindings.isEmpty
-				bindings += u
+				bindings += b
 				//				logI(s"binding Add> size= ${bindings.size};  $u")
 				if (first) engine.update(BIND_FIRST)
 			case trace => throw CyclicUsageException(trace.map(_.moduleID).mkString(", "))
@@ -187,11 +188,14 @@ trait Module extends FutureContextHolder {
 		Nil
 	}
 	private[app] def bindingRemove(binding: Module): Unit = {
-		val u = if (binding == null) this else binding
-		val wasChild = dependChildren.remove(binding)
-		if (bindings.remove(u) && bindings.isEmpty) engine.update(BIND_LAST)
-		else if (wasChild) engine.update(CH_DEL)
-		//		logI(s"binding Remove> size= ${bindings.size}")
+		val b = if (binding == null) this else binding
+		if (bindings.remove(b)) {
+			val wasChild = dependChildren.remove(b)
+			if (bindings.isEmpty) engine.update(BIND_LAST)
+			else if (wasChild) engine.update(CH_DEL)
+			//		logI(s"binding Remove> size= ${bindings.size}")
+		}
+		else if (b.getClass == getClass && b != this && b.isDestroying) engine.update(UNIQ)
 	}
 	
 	private[this] def dependParentAdd(m: Module): Unit = if (dependParents.add(m)) {
@@ -229,7 +233,7 @@ trait Module extends FutureContextHolder {
 	private[app] def trimMemory(level: Int): Unit = {
 		import ComponentCallbacks2._
 		if (level == TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_RUNNING_CRITICAL) asyncVars.foreach(_.releaseValue())
-		try onTrimMemory(level) catch {case e: Throwable => logE(e)}
+		try onTrimMemory(level) catch loggedE
 	}
 	
 	private[core] def registerAsyncVar(v: FileVar[_]) = asyncVars = v :: asyncVars
@@ -249,9 +253,10 @@ trait Module extends FutureContextHolder {
 		private[this] var _state: StateValue.Value = PASSIVE
 		private[app] var failure: Throwable = null
 		private[this] var nextTik = 0L
-		private[this] var initialTime = 0L
-		private[this] var extremCycle = true
+		private[this] var startTime = 0L
 		private[app] var pausedActivating = false
+		private[app] var initialising = true
+		private[app] var terminating = false
 
 		private[app] def state = synchronized(_state)
 		private[this] def state_=(v: StateValue.Value): Unit = {
@@ -268,7 +273,7 @@ trait Module extends FutureContextHolder {
 				case FAILED => canDestroy
 				case _ => false
 			}
-						logV(s"REQUEST UPDATE  [${thisModule.getClass.getSimpleName}]  cause $cause;   ? $needUpdate;    paused? ${isActivatingProgressPaused};  ")
+			//						logV(s"REQUEST UPDATE  [$moduleID]  cause $cause;   ? $needUpdate;    paused? ${isActivatingProgressPaused};  ")
 			//			logV(s"DUMP ${dumpState}")
 			if (needUpdate) requestUpdate(delay)
 			needUpdate
@@ -281,19 +286,19 @@ trait Module extends FutureContextHolder {
 			shouldActivate && parentsReady
 		}
 		private[this] def shouldActivate: Boolean = {
-			!passiveMode || requests.nonEmpty || dependChildren.exists(_.engine.canParentActivate)
+			(!initialising || !manager.moduleWaitPredecessor) && (!passiveMode || requests.nonEmpty || dependChildren.exists(_.engine.canParentActivate))
 		}
 		private def canParentActivate: Boolean = {
 			bindings.nonEmpty && shouldActivate
 		}
 		private[this] def canDestroy: Boolean = {
-			bindings.isEmpty
+			bindings.isEmpty && requests.isEmpty
 		}
 		private[this] def canDeactivate: Boolean = {
 			requests.isEmpty && (bindings.isEmpty || (passiveMode && dependChildren.forall(_.engine.canParentDeactivate)))
 		}
 		private def canParentDeactivate: Boolean = {
-			_state == PASSIVE || _state >= FAILED
+			_state >= PASSIVE
 		}
 		private[this] def parentsReady: Boolean = dependParents.forall { par =>
 			par.isActive || {
@@ -318,11 +323,11 @@ trait Module extends FutureContextHolder {
 		private[this] def requestUpdate(delay: Long): Unit = if (!pausedActivating) {
 			nextTik = deviceNow() + delay
 			ModuleTiker.requestUpdate(nextTik)
-//						logV(s"REQUEST UPDATE  for $delay ms")
+			//						logV(s"REQUEST UPDATE  for $delay ms")
 		}
 		
 		private[app] def onUpdate(): Boolean = synchronized {
-						logV(s"                  UPDATE [${thisModule.getClass.getSimpleName}]   state= ${_state}; canDestroy? $canDestroy;   canDeactivate? $canDeactivate;  canActivate? $canActivate")
+			//						logV(s"                  UPDATE [$moduleID]   state= ${_state}; canDestroy? $canDestroy;   canDeactivate? $canDeactivate;  canActivate? $canActivate")
 			val prev = _state
 			//
 			_state match {
@@ -343,35 +348,36 @@ trait Module extends FutureContextHolder {
 		private[this] def activate: Unit = {
 			state = ACTIVATING
 			futureContext.start()
-			trying(onActivatingStart(extremCycle))
-			initialTime = deviceNow()
+			trying(onActivatingStart(initialising))
+			startTime = deviceNow()
 			if (!pausedActivating) activated
 		}
 		private[this] def isActivated: Boolean = {
-			val time = (deviceNow() - initialTime)/1000
-			trying(onActivatingProgress(extremCycle, time.toInt))
+			val time = (deviceNow() - startTime) / 1000
+			trying(onActivatingProgress(initialising, time.toInt))
 		}
 		private[this] def activated: Unit = if (isActivated) {
 			state = ACTIVE
-			trying(onActivatingFinish(extremCycle))
-			extremCycle = false
+			trying(onActivatingFinish(initialising))
 			consumeRequests()
+			initialising = false
 			dependChildren.foreach(_.engine.update(PAR_ACTIV))
 		}
 		private[this] def deactivate: Unit = {
 			state = DEACTIVATING
-			extremCycle = bindings.isEmpty
-			trying(onDeactivatingStart(extremCycle))
-			initialTime = deviceNow()
+			//todo : on terminal disable bind and serve.  if bind or serve, manager should create new instance.
+			if (bindings.isEmpty) terminating = true
+			trying(onDeactivatingStart(terminating))
+			startTime = deviceNow()
 			deactivated
 		}
 		private[this] def isDeactivated: Boolean = {
-			val time = (deviceNow() - initialTime)/1000
-			trying(onDeactivatingProgress(extremCycle, time.toInt))
+			val time = (deviceNow() - startTime) / 1000
+			trying(onDeactivatingProgress(terminating, time.toInt))
 		}
 		private[this] def deactivated: Unit = if (isDeactivated) {
 			state = PASSIVE
-			trying(onDeactivatingFinish(extremCycle))
+			trying(onDeactivatingFinish(terminating))
 			dependParents.foreach(_.engine.update(CH_DEACT))
 			futureContext.quit(true)
 		}
@@ -418,7 +424,7 @@ trait Module extends FutureContextHolder {
 		}
 
 		private[this] def calcDelay(): Int = {
-			val past = deviceNow() - initialTime
+			val past = deviceNow() - startTime
 			val delay = if (past < 2000) 200
 			else if (past < 10000) 1000
 			else if (past < 60000) 5000

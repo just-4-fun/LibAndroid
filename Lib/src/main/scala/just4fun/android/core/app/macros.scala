@@ -4,6 +4,11 @@ import scala.language.experimental.macros
 import scala.reflect.macros.blackbox.Context
 
 object Macros {
+	def use[T: c.WeakTypeTag](c: Context)(m: c.Tree, context: c.Tree): c.Tree = {
+		checkT[T](c, "Method bindSelf is for that purpose.")
+		import c.universe._
+		q"${symbolOf[Modules].companion}.unchecked_use[${weakTypeOf[T]}]($m, $context)"
+	}
 	def bindS[T: c.WeakTypeTag](c: Context)(m: c.Tree): c.Tree = {
 		checkT[T](c, "Method bindSelf is for that purpose.")
 		import c.universe._
@@ -18,16 +23,6 @@ object Macros {
 		checkT[T](c, "Method bindSelf is for that purpose.")
 		import c.universe._
 		q"${symbolOf[Modules].companion}.unchecked_bind[${weakTypeOf[T]}]($clas)($m, $activity)"
-	}
-	def bindSelf[T: c.WeakTypeTag](c: Context)(m: c.Tree, context: c.Tree): c.Tree = {
-		checkT[T](c, null)
-		import c.universe._
-		q"${symbolOf[Modules].companion}.unchecked_bindSelf[${weakTypeOf[T]}]($m, $context)"
-	}
-	def bindSelfC[T: c.WeakTypeTag](c: Context)(clas: c.Tree)(m: c.Tree, context: c.Tree): c.Tree = {
-		checkT[T](c, null)
-		import c.universe._
-		q"${symbolOf[Modules].companion}.unchecked_bindSelf[${weakTypeOf[T]}]($clas)($m, $context)"
 	}
 	def unbindS[T: c.WeakTypeTag](c: Context)(m: c.Tree): c.Tree = {
 		checkT[T](c, "Method unbindSelf is for that purpose.", false)
@@ -49,6 +44,16 @@ object Macros {
 		import c.universe._
 		q"unchecked_dependOn[${weakTypeOf[T]}]($m)"
 	}
+	//	def bindSelf[T: c.WeakTypeTag](c: Context)(m: c.Tree, context: c.Tree): c.Tree = {
+	//		checkT[T](c, null)
+	//		import c.universe._
+	//		q"${symbolOf[Modules].companion}.unchecked_bindSelf[${weakTypeOf[T]}]($m, $context)"
+	//	}
+	//	def bindSelfC[T: c.WeakTypeTag](c: Context)(clas: c.Tree)(m: c.Tree, context: c.Tree): c.Tree = {
+	//		checkT[T](c, null)
+	//		import c.universe._
+	//		q"${symbolOf[Modules].companion}.unchecked_bindSelf[${weakTypeOf[T]}]($clas)($m, $context)"
+	//	}
 	private def checkT[T: c.WeakTypeTag](c: Context, selfMsg: String, chkConst: Boolean = true): Unit = {
 		import c.universe._
 		implicit val cxt = c

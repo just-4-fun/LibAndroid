@@ -21,7 +21,7 @@ object UiEvent extends Enumeration {
 
 
 
-private[app] class ActivityManager(app: Application, mMgr: ModuleManager) extends ActivityLifecycleCallbacks  {
+private[app] class ActivityManager(app: Modules, mMgr: ModuleManager) extends ActivityLifecycleCallbacks  {
 	import ActivityState._
 	private var activity: Activity = _
 	private var state: ActivityState.Value = NONE

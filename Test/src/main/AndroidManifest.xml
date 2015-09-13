@@ -15,12 +15,14 @@
         <activity android:name=".test3.TestActivity" android:label="@string/app_name">
         </activity>
         <activity android:name=".test4.TestActivity" android:label="@string/app_name">
+        </activity>
+        <activity android:name=".test5.TestActivity" android:label="@string/app_name">
+        </activity>
+        <activity android:name=".test6.TestActivity" android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
-        <activity android:name=".test5.TestActivity" android:label="@string/app_name">
         </activity>
         <service
                 android:name="just4fun.android.core.app.KeepAliveService">
