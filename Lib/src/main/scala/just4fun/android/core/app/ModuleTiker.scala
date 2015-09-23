@@ -28,7 +28,7 @@ private[app] object ModuleTiker extends Tiker  {
 			case UPDATE => val s = token.asInstanceOf[Module]
 				updates += 1
 //				logI(s">  TIK UPDATE  $requests : $updates : $changes")
-				if (s.engine.onUpdate()) {
+				if (s.onUpdateState()) {
 					changes += 1
 					logI(s">  TIK UPDATE with change  $requests : $updates : $changes")
 				}

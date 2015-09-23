@@ -16,7 +16,7 @@ trait ActivityModule extends Module {
 	bindSelf()
 
 	// Non-restorable
-	override final protected[app] def restoreAfterCrashPolicy = RestoreAfterCrashPolicy.NEVER
+	override final def restoreAfterCrashPolicy = RestoreAfterCrashPolicy.NEVER
 
 	private[app] def setActivityClass(aCls: Class[_]): ActivityModule = {
 		activityClass = aCls

@@ -66,8 +66,8 @@ private[app] class ModuleManager(app: Modules) {
 				throw ex
 		}
 	}
-	def moduleWaitPredecessor(implicit module: Module): Boolean = {
-		modules.exists(m => m.getClass == module.getClass && m != module && m.isDestroying)
+	def moduleHasNoPredecessor(implicit module: Module): Boolean = {
+		!modules.exists(_.isPredecessorOf(module))
 	}
 	def moduleUnbind[M <: Module : Manifest](binding: Module): Option[M] = {
 		val cls: Class[M] = implicitly[Manifest[M]].runtimeClass.asInstanceOf[Class[M]]
@@ -167,9 +167,11 @@ class ModuleException(message: String) extends Exception(message) {
 	def this() = this("")
 }
 
-object ModuleInactiveException extends ModuleException("Module cannot execute request because it's not yet activated.")
+object ModuleNotAliveException extends ModuleException("Module cannot execute request because it's not yet activated.")
 
-case class DependencyParentException(m: Module) extends ModuleException(s"Dependency parent ${m.moduleID} failed with  ${m.failure.foreach(_.getMessage)}")
+object ModuleAbandonedException extends ModuleException("Module activating is stopped since it is abandoned.")
+
+case class ParentDependencyFailedException(m: Module) extends ModuleException(s"Dependency parent ${m.moduleID} failed with  ${m.failure.foreach(_.getMessage)}")
 
 case class CyclicUsageException(trace: String) extends ModuleException(s"Cyclic usage detected in chain [$trace]")
 

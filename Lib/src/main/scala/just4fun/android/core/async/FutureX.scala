@@ -8,123 +8,147 @@ import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
 import Logger._
 
-object FutureX extends Enumeration {
-	val NONE, WAIT, EXEC, DONE = Value
-	
-	implicit def ext2future[T](f: FutureX[T]): Future[T] = f.future
-	private val failure = Failure(new CancellationException)
+
+object FutureX {
+	object State extends Enumeration {val NONE, WAIT, EXEC, DONE = Value}
+
+	implicit def fx2future[T](f: FutureX[T]): Future[T] = f.future
 
 	def apply[T](code: => T)(implicit c: FutureContext): FutureX[T] = {
-		new FutureX[T].task(code)(c).activate()
+		new FutureX[T].task(code).activate()
 	}
-	def post[T](id: Any = null, delay: Long = 0, replace: Boolean = true)(code: => T)(implicit c: FutureContext): FutureX[T] = {
+	def apply[T](code: => FutureX[T])(implicit c: FutureContext, d: DummyImplicit): FutureX[T] = {
+		new FutureX[T].task(code).activate()
+	}
+	def apply[T](code: => Future[T])(implicit c: FutureContext, d: DummyImplicit, d2: DummyImplicit2 = null): FutureX[T] = {
+		new FutureX[T].task(code).activate()
+	}
+	def post[T](delay: Long = 0, id: Any = null, replace: Boolean = true)(code: => T)(implicit c: FutureContext): FutureX[T] = {
 		new FutureX[T].task(code)(c).activate(id, delay, replace)
+	}
+	def postSeq[T](delay: Long = 0, id: Any = null, replace: Boolean = true)(code: => FutureX[T])(implicit c: FutureContext): FutureX[T] = {
+		new FutureX[T].task(code).activate(id, delay, replace)
+	}
+	def postFuture[T](delay: Long = 0, id: Any = null, replace: Boolean = true)(code: => Future[T])(implicit c: FutureContext): FutureX[T] = {
+		new FutureX[T].task(code).activate(id, delay, replace)
 	}
 	def cancel(id: Any)(implicit c: FutureContext): Unit = {
 		c.cancel(id)
 	}
+
+	class DummyImplicit2
 }
 
-class FutureX[T] extends Runnable {
+
+
+
+
+/* FUTURE  BASE */
+
+sealed class FutureXBase[T] extends Runnable {
 	import FutureX._
+	import State._
+	var id: String = ""
 	protected[this] var _state = NONE
 	protected[this] var _context: FutureContext = ThreadPoolContext
-	protected[this] var task: FutureTask[T] = null
-	protected var parentFx: FutureX[_] = null
+	protected[this] var _task: FutureTask[T] = null
 	protected[this] val promise = Promise[T]()
 	val future: Future[T] = promise.future
-	
+	private[async] val root: FutureXBase[_] = this
 
 	/* USAGE */
-	override def toString: String = super.toString + "#" + _state
-	def state: FutureX.Value = _state
+	def state: State.Value = _state
 	def context: FutureContext = _context
 
-	def cancel(): Unit = cancelExecute()
+	def task(t: FutureTask[T])(implicit c: FutureContext): this.type = {
+		_context = c
+		_task = t
+		this
+	}
+	def activate(id: Any = null, delay: Long = 0, replace: Boolean = true): this.type = synchronized {
+		if (_state == NONE) {
+			_state = WAIT
+			if (_context != null) _context.execute(id, delay, replace, this)
+			else finishExecute(Failure(new Exception("Context is null")))
+		}
+		this
+	}
+	def deactivate(): Unit = synchronized {
+		if (_state == WAIT) {
+			_state = NONE
+			if (_context != null) _context.cancel(this)
+		}
+	}
+	def cancel(): Unit = synchronized {
+		if (_state < DONE) {
+			if (_state == WAIT && _context != null) _context.cancel(this)
+			finishExecute(Failure(new CancellationException))
+		}
+	}
 
-	def onCompleteInUiThread[U](f: Try[T] => U): Unit = future.onComplete(f)(UiThreadContext)
-	def onSuccessInUiThread[U](pf: PartialFunction[T, U]): Unit = future.onSuccess(pf)(UiThreadContext)
-	def onFailureInUiThread[U](pf: PartialFunction[Throwable, U]): Unit = future.onFailure(pf)(UiThreadContext)
-
-	def task(code: => T)(implicit c: FutureContext): FutureX[T] = {
-		_context = c
-		task = new FutureTaskSync[T](this, code)
-		this
-	}
-	def taskSeq(code: => FutureX[T])(implicit c: FutureContext): FutureX[T] = {
-		_context = c
-		task = new FutureTaskAsyncFX[T](this, code)
-		this
-	}
-	def taskFuture(code: => Future[T])(implicit c: FutureContext): FutureX[T] = {
-		_context = c
-		task = new FutureTaskAsyncF[T](this, code)
-		this
-	}
-	def thanTask[V](code: T => V)(implicit c: FutureContext): FutureX[V] = {
-		new FutureX[V].postTask(this, code)(c)
-	}
-	def thanTaskSeq[V](code: T => FutureX[V])(implicit c: FutureContext): FutureX[V] = {
-		new FutureX[V].postTaskSeq(this, code)(c)
-	}
-	def thanTaskFuture[V](code: T => Future[V])(implicit c: FutureContext): FutureX[V] = {
-		new FutureX[V].postTaskFuture(this, code)(c)
-	}
+	def onCompleteInMainThread[U](f: Try[T] => U): Unit = future.onComplete(f)(MainThreadContext)
+	def onSuccessInMainThread[U](pf: PartialFunction[T, U]): Unit = future.onSuccess(pf)(MainThreadContext)
+	def onFailureInMainThread[U](pf: PartialFunction[Throwable, U]): Unit = future.onFailure(pf)(MainThreadContext)
 
 	/* INTERNAL */
 
-	protected def postTask[V](parent: FutureX[V], code: V => T)(implicit c: FutureContext): FutureX[T] = {
-		_context = c
-		_state = WAIT
-		parentFx = parent
-		task = new FutureTaskSyncPost[T, V](this, parent, code)
-		this
-	}
-	protected def postTaskSeq[V](parent: FutureX[V], code: V => FutureX[T])(implicit c: FutureContext): FutureX[T] = {
-		_context = c
-		_state = WAIT
-		parentFx = parent
-		task = new FutureTaskAsyncPostFX[T, V](this, parent, code)
-		this
-	}
-	protected def postTaskFuture[V](parent: FutureX[V], code: V => Future[T])(implicit c: FutureContext): FutureX[T] = {
-		_context = c
-		_state = WAIT
-		parentFx = parent
-		task = new FutureTaskAsyncPostF[T, V](this, parent, code)
-		this
-	}
+	override final def run(): Unit = startExecute()
 
-	protected def isHead: Boolean = parentFx == null
-	
-	protected[core] def activate(id: Any = null, delay: Long = 0, replace: Boolean = true): FutureX[T] = synchronized {
-		if (isHead) {
-			if (_state < WAIT && _context != null) {
-				_state = WAIT
-				_context.execute(id, delay, replace, this)
+	def startExecute(): Unit = {
+		val exec = root synchronized {
+			_state match {
+				case WAIT => _state = EXEC; true
+				case _ => false
 			}
 		}
-		else parentFx.activate(id, delay, replace)
-		this
+		if (exec) {
+			if (_task != null) _task.execute(this)
+			else finishExecute(Failure(new Exception("Task is null")))
+		}
+		else if (_state != DONE) finishExecute(Failure(new IllegalStateException(s"Can't execute in state ${_state}")))
 	}
-
-	override def run(): Unit = startExecute()
-
-	protected[async] def startExecute(): Unit = if (_state < EXEC) synchronized {
-		_state = EXEC
-		task.execute()
-	}
-	protected[async] def finishExecute(v: Try[T]): Unit = {
+	def finishExecute(v: Try[T]): Unit = root synchronized {
 		_state = DONE
 		v match {
 			case Success(v) => promise.trySuccess(v)
-			case Failure(e) => promise.tryFailure(e); logE(e)
+			case Failure(e: CancellationException) => promise.tryFailure(e)
+			case Failure(e) => logE(e); promise.tryFailure(e)
 		}
 	}
-	protected[this] def cancelExecute(): Unit = if (_state < DONE) synchronized {
-		if (!isHead) parentFx.cancel()
-		else if (_state > NONE && _context != null) _context.cancel(this)
-		finishExecute(failure)
+}
+
+
+
+
+
+/* FUTURE */
+
+class FutureX[T] extends FutureXBase[T] {
+	import FutureX._
+
+	def task(code: => T)(implicit c: FutureContext): this.type = {
+		_context = c
+		_task = new FutureTaskSync[T](code)
+		this
+	}
+	def task(code: => FutureX[T])(implicit c: FutureContext, d: DummyImplicit): this.type = {
+		_context = c
+		_task = new FutureTaskFX[T](code)
+		this
+	}
+	def task(code: => Future[T])(implicit c: FutureContext, d: DummyImplicit, d2: DummyImplicit2 = null): this.type = {
+		_context = c
+		_task = new FutureTaskF[T](code)
+		this
+	}
+	def thanTask[V](code: T => V)(implicit c: FutureContext): FutureX[V] = {
+		new FutureXP[V, T](this).postTask(code)(c)
+	}
+	def thanTaskSeq[V](code: T => FutureX[V])(implicit c: FutureContext): FutureX[V] = {
+		new FutureXP[V, T](this).postTaskSeq(code)(c)
+	}
+	def thanTaskFuture[V](code: T => Future[V])(implicit c: FutureContext): FutureX[V] = {
+		new FutureXP[V, T](this).postTaskFuture(code)(c)
 	}
 }
 
@@ -132,60 +156,125 @@ class FutureX[T] extends Runnable {
 
 
 
-/* FUTURE TASKs */
 
-private[async] abstract class FutureTask[T] {
-	val future: FutureX[T]
-	def execute(): Unit
+/* POST FUTURE */
+
+class FutureXP[T, V] private[async](val parent: FutureX[V]) extends FutureX[T] {
+	import FutureX._
+	import State._
+	override private[async] val root = parent.root
+	_state = parent.state
+
+	override def activate(id: Any = null, delay: Long = 0, replace: Boolean = true): this.type = root synchronized {
+		if (root.state == NONE) {
+			_state = WAIT
+			parent.activate(id, delay, replace)
+		}
+		this
+	}
+	override def deactivate(): Unit = root synchronized {
+		if (root.state == WAIT) {
+			_state = NONE
+			parent.deactivate()
+		}
+	}
+	override def cancel(): Unit = root synchronized {
+		if (_state < DONE) {
+			parent.cancel()
+			finishExecute(Failure(new CancellationException))
+		}
+	}
+	
+	/* INTERNAL */
+	
+	private[async] def postTask(code: V => T)(implicit c: FutureContext): this.type = {
+		_context = c
+		_task = new FuturePostTaskSync[T, V](this, code)
+		this
+	}
+	private[async] def postTaskSeq(code: V => FutureX[T])(implicit c: FutureContext): this.type = {
+		_context = c
+		_task = new FuturePostTaskFX[T, V](this, code)
+		this
+	}
+	private[async] def postTaskFuture(code: V => Future[T])(implicit c: FutureContext): this.type = {
+		_context = c
+		_task = new FuturePostTaskF[T, V](this, code)
+		this
+	}
 }
 
-private[async] class FutureTaskSync[T](val future: FutureX[T], code: => T) extends FutureTask[T] {
-	override def execute(): Unit = {
+
+
+
+
+
+/* FUTURE TASK */
+
+trait FutureTask[T] {
+	def execute(future: FutureXBase[T]): Unit
+}
+
+
+
+/* TASKs */
+
+private[async] abstract class FutureTaskSyncBase[T] extends FutureTask[T] {
+	def execute(future: FutureXBase[T]): Unit = {
 		future.finishExecute(Try(onExecute()))
 	}
-	def onExecute(): T = code
+	def onExecute(): T
 }
-
-private[async] class FutureTaskAsyncFX[T](val future: FutureX[T], code: => FutureX[T]) extends FutureTask[T] {
-	override def execute(): Unit = {
+private[async] abstract class FutureTaskFXBase[T] extends FutureTask[T] {
+	def execute(future: FutureXBase[T]): Unit = {
 		Try(onExecute()) match {
 			case v: Failure[_] => future.finishExecute(v.asInstanceOf[Failure[T]])
 			case Success(fx) => fx.activate().onComplete(future.finishExecute)(future.context)
 		}
 	}
-	def onExecute(): FutureX[T] = code
+	def onExecute(): FutureX[T]
 }
-
-private[async] class FutureTaskAsyncF[T](val future: FutureX[T], code: => Future[T]) extends FutureTask[T] {
-	override def execute(): Unit = {
+private[async] abstract class FutureTaskFBase[T] extends FutureTask[T] {
+	def execute(future: FutureXBase[T]): Unit = {
 		Try(onExecute()) match {
 			case v: Failure[_] => future.finishExecute(v.asInstanceOf[Failure[T]])
 			case Success(f) => f.onComplete(future.finishExecute)(future.context)
 		}
 	}
+	def onExecute(): Future[T]
+}
+
+
+
+private[async] class FutureTaskSync[T](code: => T) extends FutureTaskSyncBase[T] {
+	def onExecute(): T = code
+}
+private[async] class FutureTaskFX[T](code: => FutureX[T]) extends FutureTaskFXBase[T] {
+	def onExecute(): FutureX[T] = code
+}
+private[async] class FutureTaskF[T](code: => Future[T]) extends FutureTaskFBase[T] {
 	def onExecute(): Future[T] = code
 }
 
-private[async] trait PostTask[T, V] {
-	this: FutureTask[T] =>
-	val parent: FutureX[V]
+
+
+
+private[async] trait PostTask[T, V] extends FutureTask[T] {
+	val future: FutureXP[T, V]
 	var value: V = _
-	parent.onComplete {
+	future.parent.onComplete {
 		case v: Failure[_] => future.finishExecute(v.asInstanceOf[Failure[T]])
 		case Success(v) => value = v; future.startExecute()
 	}(future.context)
 }
-
-private[async] class FutureTaskSyncPost[T, V](override val future: FutureX[T], val parent: FutureX[V], code: V => T) extends FutureTaskSync[T](future, null.asInstanceOf[T]) with PostTask[T, V] {
-	override def onExecute(): T = code(value)
+private[async] class FuturePostTaskSync[T, V](val future: FutureXP[T, V], code: V => T) extends FutureTaskSyncBase[T] with PostTask[T, V] {
+	def onExecute(): T = code(value)
 }
-
-private[async] class FutureTaskAsyncPostFX[T, V](override val future: FutureX[T], val parent: FutureX[V], code: V => FutureX[T]) extends FutureTaskAsyncFX[T](future, null) with PostTask[T, V] {
-	override def onExecute(): FutureX[T] = code(value)
+private[async] class FuturePostTaskFX[T, V](val future: FutureXP[T, V], code: V => FutureX[T]) extends FutureTaskFXBase[T] with PostTask[T, V] {
+	def onExecute(): FutureX[T] = code(value)
 }
-
-private[async] class FutureTaskAsyncPostF[T, V](override val future: FutureX[T], val parent: FutureX[V], code: V => Future[T]) extends FutureTaskAsyncF[T](future, null) with PostTask[T, V] {
-	override def onExecute(): Future[T] = code(value)
+private[async] class FuturePostTaskF[T, V](val future: FutureXP[T, V], code: V => Future[T]) extends FutureTaskFBase[T] with PostTask[T, V] {
+	def onExecute(): Future[T] = code(value)
 }
 
 

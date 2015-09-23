@@ -6,7 +6,7 @@ import android.view.View
 import android.view.View.OnClickListener
 import android.widget.TextView
 import just4fun.android.core.app.{Modules, Module, TwixActivity, TwixModule}
-import just4fun.android.core.async.{FutureX, NewThreadContextHolder}
+import just4fun.android.core.async.{FutureX, ThreadPoolContextHolder}
 import just4fun.android.libtest.{R, TestModule}
 import just4fun.utils.logger.Logger._
 
@@ -24,8 +24,8 @@ class TestActivity extends Activity {
 		setContentView(R.layout.main)
 		findViewById(R.id.text).asInstanceOf[TextView].setOnClickListener(new OnClickListener {
 			override def onClick(v: View): Unit = {
-				Modules.use[MainModule].test().onCompleteInUiThread{
-					case Success(_) =>logD(s"<<<  TEST  >>>")
+				Modules.use[MainModule].test().onCompleteInMainThread{
+					case Success(_) =>logD(s"<<<  TEST   >>>")
 					case Failure(e) => logE(e)
 				}
 			}
@@ -58,7 +58,7 @@ class MainModule extends Module with TestModule {
 		super.onDeactivatingFinish(lastTime)
 		logD(s"last? $lastTime")
 	}
-	def test(): FutureX[Unit] = execAsync{
+	def test(): FutureX[Unit] = serveAsync{
 		m1.test().onSuccess{case _ => logD(s"<<<  TEST  >>>")}
 	}
 }
@@ -68,7 +68,7 @@ class MainModule extends Module with TestModule {
 class Module_1 extends Module with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
-	def test(): FutureX[Unit] = execAsync{
+	def test(): FutureX[Unit] = serveAsync{
 		logD(s"<<<  TEST  >>>")
 	}
 }

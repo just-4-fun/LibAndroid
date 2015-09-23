@@ -2,6 +2,7 @@ package just4fun.android.libtest.test4
 
 import android.os.Bundle
 import just4fun.android.core.app.{Modules, TwixModule, TwixActivity}
+import just4fun.android.core.async.{ThreadPoolContext, UiThreadContext}
 import just4fun.android.core.sqlite.{DbModule, DbTableModule, DbSchema, DbObject}
 import just4fun.android.core.vars.Prefs
 import just4fun.android.libtest.{TestModule, R}
@@ -28,7 +29,7 @@ with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
 	var time = 0L
-	Modules.use[TestTable].select().onComplete{
+	Modules.use[TestTable].select().onComplete {
 		case Success(list) => logV(s"<<< SELECTED ALL  ${list.length} >>>>>>>>>>>>> ")
 		case Failure(e) => logE(e)
 	}
@@ -46,45 +47,50 @@ with TestModule {
 			val obj2 = testTab.schema.copy(obj)
 			obj2.name = "oops.."
 			testTab.save(obj2, obj)
-		}.thanTaskSeq { obj =>
+		}(ThreadPoolContext)
+		  .thanTaskSeq { obj =>
 			logV(s"<<< SAVED (UPD) ${testTab.schema.valuesToJsonMap(obj)}>>>>>>>>>>>>> $timeDiff")
 			obj.name = "bla"
 			testTab.insert(obj)
-		}.thanTaskSeq { obj =>
+		}
+		  .thanTaskSeq { obj =>
 			logV(s"<<< INSERTED ${testTab.schema.valuesToJsonMap(obj)}>>>>>>>>>>>>> $timeDiff")
 			testTab.select()
-		}.thanTask { list =>
+		}(UiThreadContext)
+		  .thanTask { list =>
 			logV(s"<<< SELECT ALL size= ${list.size} ${if (list.nonEmpty) testTab.schema.valuesToJsonMap(list.head) else ""}>>>>>>>>>>>>> $timeDiff")
 			list.head
-		}.thanTaskSeq { obj =>
+		}
+		  .thanTaskSeq { obj =>
 			logV(s"<<< DELETE obj= ${if (obj == null) "null" else testTab.schema.valuesToJsonMap(obj)}>>>>>>>>>>>>> $timeDiff")
 			testTab.delete(obj)
-		}.onComplete {
+		}
+		  .onComplete {
 			case Success(res) => logV(s"<<< DELETED $res >>>>>>>>>>>>> $timeDiff")
 				logV(s"<<< PROPS ${testTab.schema.props.mkString(", ")}")
 			case Failure(e) => logE(e)
 		}
-//		//
-//		testTab.save(new TestObject(System.currentTimeMillis(), System.currentTimeMillis(), "ok")).onComplete {
-//			case Success(v) => logV(s"<<<<<<<<<<<<< SAVED3 ${testTab.schema.valuesToJsonMap(v)}>>>>>>>>>>>>>")
-//				val obj2 = testTab.schema.copy(v)
-//				obj2.name = "oops.."
-//				//				testTab.save(v, columns = List(testTab.schema.name)).onComplete{
-//				testTab.save(obj2, v).onComplete {
-//					case Success(v) => logV(s"<<<<<<<<<<<<< SAVED4 ${testTab.schema.valuesToJsonMap(v)}>>>>>>>>>>>>>")
-//						testTab.select(s"_id=${v._id}").onComplete {
-//							case Success(list) => logV(s"<<<<<<<<<<<<< SELECT3 size= ${list.size} ${if (list.nonEmpty) testTab.schema.valuesToJsonMap(list.head) else ""}>>>>>>>>>>>>>")
-//							case Failure(e) => logE(e, "<<<<<<<<<<<<< SELECT3 FAILED >>>>>>>>>>>>>")
-//						}
-//					case Failure(e) => logE(e, "<<<<<<<<<<<<< FAILED4 >>>>>>>>>>>>>")
-//				}
-//			case Failure(e) => logE(e, "<<<<<<<<<<<<< FAILED3 >>>>>>>>>>>>>")
-//		}
-//		//
-//		testTab.select(s"_id=0").onComplete {
-//			case Success(list) => logV(s"<<<<<<<<<<<<< SELECT size= ${list.size} ${if (list.nonEmpty) testTab.schema.valuesToJsonMap(list.head) else ""}>>>>>>>>>>>>>")
-//			case Failure(e) => logE(e, "<<<<<<<<<<<<< SELECT FAILED >>>>>>>>>>>>>")
-//		}
+		//		//
+		//		testTab.save(new TestObject(System.currentTimeMillis(), System.currentTimeMillis(), "ok")).onComplete {
+		//			case Success(v) => logV(s"<<<<<<<<<<<<< SAVED3 ${testTab.schema.valuesToJsonMap(v)}>>>>>>>>>>>>>")
+		//				val obj2 = testTab.schema.copy(v)
+		//				obj2.name = "oops.."
+		//				//				testTab.save(v, columns = List(testTab.schema.name)).onComplete{
+		//				testTab.save(obj2, v).onComplete {
+		//					case Success(v) => logV(s"<<<<<<<<<<<<< SAVED4 ${testTab.schema.valuesToJsonMap(v)}>>>>>>>>>>>>>")
+		//						testTab.select(s"_id=${v._id}").onComplete {
+		//							case Success(list) => logV(s"<<<<<<<<<<<<< SELECT3 size= ${list.size} ${if (list.nonEmpty) testTab.schema.valuesToJsonMap(list.head) else ""}>>>>>>>>>>>>>")
+		//							case Failure(e) => logE(e, "<<<<<<<<<<<<< SELECT3 FAILED >>>>>>>>>>>>>")
+		//						}
+		//					case Failure(e) => logE(e, "<<<<<<<<<<<<< FAILED4 >>>>>>>>>>>>>")
+		//				}
+		//			case Failure(e) => logE(e, "<<<<<<<<<<<<< FAILED3 >>>>>>>>>>>>>")
+		//		}
+		//		//
+		//		testTab.select(s"_id=0").onComplete {
+		//			case Success(list) => logV(s"<<<<<<<<<<<<< SELECT size= ${list.size} ${if (list.nonEmpty) testTab.schema.valuesToJsonMap(list.head) else ""}>>>>>>>>>>>>>")
+		//			case Failure(e) => logE(e, "<<<<<<<<<<<<< SELECT FAILED >>>>>>>>>>>>>")
+		//		}
 	}
 }
 
@@ -103,7 +109,7 @@ class TestTable extends DbTableModule[DbModule, TestObject] {
 	val isOk = STUB
 }
 
-class TestObject(var x: Long, var y: Double, var name: String) extends DbObject  with BlaObj{
+class TestObject(var x: Long, var y: Double, var name: String) extends DbObject with BlaObj {
 	var isOk = true
 }
 

@@ -7,6 +7,8 @@ import just4fun.utils.logger.Logger._
 /** FtureContext that is required by [[FutureX]] functions */
 trait FutureContextHolder  {
 	implicit val  futureContext: FutureContext = new HandlerContext(getClass.getSimpleName)
+	protected[this] def startFutureContext() = futureContext.start()
+	protected[this] def quitFutureContext(softly: Boolean = false) = futureContext.quit(softly)
 }
 
 
@@ -19,6 +21,6 @@ trait OwnThreadContextHolder extends FutureContextHolder {
 
 
 /** Class that extends it runs its async operations each in new [[Thread]] from pool. */
-trait NewThreadContextHolder extends FutureContextHolder {
+trait ThreadPoolContextHolder extends FutureContextHolder {
 	override implicit val futureContext: FutureContext = new ThreadPoolContext(getClass.getSimpleName)
 }

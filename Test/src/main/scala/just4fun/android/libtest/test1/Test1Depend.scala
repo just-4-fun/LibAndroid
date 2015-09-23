@@ -7,7 +7,7 @@ import android.view.View.OnClickListener
 import android.widget.TextView
 import just4fun.android.core.app.Module.RestoreAfterCrashPolicy
 import just4fun.android.core.app.{Module, TwixActivity, TwixModule}
-import just4fun.android.core.async.{FutureX, NewThreadContextHolder}
+import just4fun.android.core.async.{FutureX, ThreadPoolContextHolder}
 import just4fun.android.libtest.{TestModule, R}
 import just4fun.utils.logger.Logger
 import Logger._
@@ -39,7 +39,7 @@ class MainModule extends TwixModule[TestActivity, MainModule] with TestModule {
 }
 
 
-class Module_1 extends Module with TestModule with NewThreadContextHolder  {
+class Module_1 extends Module with TestModule with ThreadPoolContextHolder  {
 	startAfter = 1000
 	stopAfter = 1000
 	dependOn[Module_2]
@@ -60,7 +60,7 @@ class Module_3 extends Module with TestModule {
 }
 
 
-class Module_4  /*(v: Int)*/ extends Module with NewThreadContextHolder with TestModule {
+class Module_4  /*(v: Int)*/ extends Module with ThreadPoolContextHolder with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
 //	private def this() = this(0)

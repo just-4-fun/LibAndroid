@@ -16,7 +16,7 @@ import scala.util.{Success, Failure, Try}
 class DbModule extends Module with OwnThreadContextHolder {
 	val name: String = "main"
 	var db: SQLiteDatabase = _
-	setPassiveMode()
+	setStandbyMode()
 
 	/* LIFECYCLE */
 	override protected[this] def onActivatingStart(firstTime: Boolean): Unit = {
@@ -58,13 +58,13 @@ class DbModule extends Module with OwnThreadContextHolder {
 
 
 	/* USAGE */
-	def execSql(sql: String): FutureX[Unit] = execAsync(in_execSql(sql))
-	def select(sql: String, selectArgs: Array[String] = null): FutureX[Cursor] = execAsync(in_select(sql, selectArgs))
-	def insert(table: String, values: ContentValues, conflictAlg: Int = SQLiteDatabase.CONFLICT_ABORT): FutureX[Long] = execAsync(in_insert(table, values, conflictAlg))
-	def update(table: String, values: ContentValues, where: String = null, whereArgs: Array[String] = null, conflictAlg: Int = SQLiteDatabase.CONFLICT_ABORT): FutureX[Int] = execAsync(in_update(table, values, where, whereArgs, conflictAlg))
+	def execSql(sql: String): FutureX[Unit] = serveAsync(in_execSql(sql))
+	def select(sql: String, selectArgs: Array[String] = null): FutureX[Cursor] = serveAsync(in_select(sql, selectArgs))
+	def insert(table: String, values: ContentValues, conflictAlg: Int = SQLiteDatabase.CONFLICT_ABORT): FutureX[Long] = serveAsync(in_insert(table, values, conflictAlg))
+	def update(table: String, values: ContentValues, where: String = null, whereArgs: Array[String] = null, conflictAlg: Int = SQLiteDatabase.CONFLICT_ABORT): FutureX[Int] = serveAsync(in_update(table, values, where, whereArgs, conflictAlg))
 	/** @note To remove all rows and get a count pass "1" as the whereClause. */
-	def delete(table: String, where: String = null, whereArgs: Array[String] = null): FutureX[Int] = execAsync(in_delete(table, where, whereArgs))
-	def execInTransaction[T](code: => T): FutureX[T] = execAsync(in_execInTransaction(code))
+	def delete(table: String, where: String = null, whereArgs: Array[String] = null): FutureX[Int] = serveAsync(in_delete(table, where, whereArgs))
+	def execInTransaction[T](code: => T): FutureX[T] = serveAsync(in_execInTransaction(code))
 
 	def buildQuery(table: String, columns: Array[String] = null, where: String = null, groupBy: String = null, having: String = null, orderBy: String = null, limit: String = null, distinct: Boolean = false): String = {
 		SQLiteQueryBuilder.buildQueryString(distinct, table, columns, where, groupBy, having, orderBy, limit)
@@ -78,13 +78,13 @@ class DbModule extends Module with OwnThreadContextHolder {
 	}
 
 	/* SYNC USAGE */
-	def execSqlSync(sql: String): Try[Unit] = execTry(in_execSql(sql))
-	def selectSync(sql: String, selectArgs: Array[String] = null): Option[Cursor] = execOption(in_select(sql, selectArgs))
-	def insertSync(table: String, values: ContentValues, conflictAlg: Int = SQLiteDatabase.CONFLICT_ABORT): Try[Long] = execTry(in_insert(table, values, conflictAlg))
-	def updateSync(table: String, values: ContentValues, where: String = null, whereArgs: Array[String] = null, conflictAlg: Int = SQLiteDatabase.CONFLICT_ABORT): Option[Int] = execOption(in_update(table, values, where, whereArgs, conflictAlg))
+	def execSqlSync(sql: String): Try[Unit] = serveTry(in_execSql(sql))
+	def selectSync(sql: String, selectArgs: Array[String] = null): Option[Cursor] = serveOpt(in_select(sql, selectArgs))
+	def insertSync(table: String, values: ContentValues, conflictAlg: Int = SQLiteDatabase.CONFLICT_ABORT): Try[Long] = serveTry(in_insert(table, values, conflictAlg))
+	def updateSync(table: String, values: ContentValues, where: String = null, whereArgs: Array[String] = null, conflictAlg: Int = SQLiteDatabase.CONFLICT_ABORT): Option[Int] = serveOpt(in_update(table, values, where, whereArgs, conflictAlg))
 	/** @note To remove all rows and get a count pass "1" as the whereClause. */
-	def deleteSync(table: String, where: String = null, whereArgs: Array[String] = null): Option[Int] = execOption(in_delete(table, where, whereArgs))
-	def execInTransactionSync[T](code: => T): Try[T] = execTry(in_execInTransaction(code))
+	def deleteSync(table: String, where: String = null, whereArgs: Array[String] = null): Option[Int] = serveOpt(in_delete(table, where, whereArgs))
+	def execInTransactionSync[T](code: => T): Try[T] = serveTry(in_execInTransaction(code))
 
 
 	/* INTERNAL */

@@ -90,6 +90,29 @@ class HandlerContext(name: String, mainThread: Boolean = true) extends FutureCon
 
 
 
+/* UI Thread implementation */
+
+/** Re-posts runnable if UI is reconfiguring */
+object MainThreadContext extends HandlerContext("Main")
+
+
+
+
+/* UI Thread implementation */
+
+/** Re-posts runnable if UI is reconfiguring */
+object UiThreadContext extends HandlerContext("Ui") {
+	override def handle(runnable: Runnable): Unit = Modules.uiContext match {
+		case Some(a) =>
+			if (a.isChangingConfigurations) handler.post(runnable)
+			else super.handle(runnable)
+		case None =>
+	}
+}
+
+
+
+
 /* THREAD POOL user implementation */
 
 class ThreadPoolContext(name: String) extends HandlerContext(name) {
@@ -102,21 +125,6 @@ class ThreadPoolContext(name: String) extends HandlerContext(name) {
 	override def cancel(idORrunnable: Any): Unit = {
 		super.cancel(idORrunnable)
 		ThreadPoolContext.cancel(idORrunnable)
-	}
-}
-
-
-
-
-/* UI Thread implementation */
-
-/** Re-posts runnable if UI is reconfiguring */
-object UiThreadContext extends HandlerContext("Main") {
-	override def handle(runnable: Runnable): Unit = Modules.uiContext match {
-		case Some(a) =>
-			if (a.isChangingConfigurations) handler.post(runnable)
-			else super.handle(runnable)
-		case None =>
 	}
 }
 

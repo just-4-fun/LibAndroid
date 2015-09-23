@@ -6,6 +6,8 @@ import just4fun.utils.logger.Logger._
 
 trait TestModule {
 	this: Module =>
+
+	override val moduleID: String = getClass.getSimpleName
 	var activating = true
 	var deactivating = true
 	var startAfter = 0

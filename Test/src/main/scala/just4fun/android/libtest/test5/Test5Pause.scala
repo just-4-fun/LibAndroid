@@ -5,7 +5,7 @@ import android.view.View
 import android.view.View.OnClickListener
 import android.widget.TextView
 import just4fun.android.core.app.{Module, TwixActivity, TwixModule}
-import just4fun.android.core.async.NewThreadContextHolder
+import just4fun.android.core.async.ThreadPoolContextHolder
 import just4fun.android.libtest.{R, TestModule}
 import just4fun.utils.logger.Logger._
 
@@ -41,7 +41,7 @@ class MainModule extends TwixModule[TestActivity, MainModule] with TestModule {
 
 
 
-class Module_1 extends Module with TestModule with NewThreadContextHolder {
+class Module_1 extends Module with TestModule with ThreadPoolContextHolder {
 	startAfter = 10000
 	stopAfter = 10000
 

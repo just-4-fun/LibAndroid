@@ -13,7 +13,7 @@ abstract class DbTableModule[DB <: DbModule : Manifest, T <: DbObject : Manifest
 	implicit val schema: DbSchema[T]
 	protected[this] val db = unchecked_dependOn[DB]
 	override implicit val futureContext: FutureContext = db.futureContext
-	setPassiveMode()
+	setStandbyMode()
 
 	protected[this] def indexes: Set[DbTableIndex] = Set.empty
 	protected[this] def upgrades: Seq[DbTableUpgrade] = List.empty
@@ -21,7 +21,7 @@ abstract class DbTableModule[DB <: DbModule : Manifest, T <: DbObject : Manifest
 	/* LIFECYCLE */
 	override protected[this] def onActivatingStart(firstTime: Boolean): Unit = if (firstTime) {
 		pauseActivatingProgress()
-		open().onCompleteInUiThread {
+		open().onCompleteInMainThread {
 			case Success(v) => resumeActivatingProgress()
 				logW(s"###############   RESUME")
 			case Failure(e) => setFailed(e)
@@ -29,36 +29,39 @@ abstract class DbTableModule[DB <: DbModule : Manifest, T <: DbObject : Manifest
 		}
 	}
 
+	/** Do not interrupt in db.futureContext */
+	override protected[this] def startFutureContext(): Unit = {}
+	override protected[this] def quitFutureContext(softly: Boolean): Unit = {}
 
 	/* USAGE */
-	def select(where: String = null, columns: List[Column[T, _]] = null, groupBy: String = null, having: String = null, orderBy: String = null, limit: String = null, distinct: Boolean = false): FutureX[List[T]] = execAsync(in_select(where, columns, groupBy, having, orderBy, limit, distinct))
-	def insert(obj: T, replace: Boolean = true): FutureX[T] = execAsync{
+	def select(where: String = null, columns: List[Column[T, _]] = null, groupBy: String = null, having: String = null, orderBy: String = null, limit: String = null, distinct: Boolean = false): FutureX[List[T]] = serveAsync(in_select(where, columns, groupBy, having, orderBy, limit, distinct))
+	def insert(obj: T, replace: Boolean = true): FutureX[T] = serveAsync{
 		in_insert(obj, replace)
 		if (obj._id == -1) throw new SQLiteConstraintException(s"Cannot insert object ${schema.valuesToJsonMap(obj)}.")
 		obj
 	}
-	def save(obj: T, objOld: T = null.asInstanceOf[T], columns: Iterable[Column[T, _]] = null): FutureX[T] = execAsync{
+	def save(obj: T, objOld: T = null.asInstanceOf[T], columns: Iterable[Column[T, _]] = null): FutureX[T] = serveAsync{
 		in_save(obj, objOld, columns)
 		if (obj._id == -1) throw new SQLiteConstraintException(s"Cannot save object ${schema.valuesToJsonMap(obj)}.")
 		obj
 	}
-	def delete(objects: T*): FutureX[Int] = execAsync(in_delete(objects: _*))
-	def delete(where: String = null): FutureX[Int] = execAsync(in_delete(where))
+	def delete(objects: T*): FutureX[Int] = serveAsync(in_delete(objects: _*))
+	def delete(where: String = null): FutureX[Int] = serveAsync(in_delete(where))
 
 	/* USAGE Sync */
-	def selectSync(where: String = null, columns: List[Column[T, _]] = null, groupBy: String = null, having: String = null, orderBy: String = null, limit: String = null, distinct: Boolean = false): Try[List[T]] = execTry(in_select(where, columns, groupBy, having, orderBy, limit, distinct))
-	def insertSync(obj: T, replace: Boolean = true): Try[T] = execTry{
+	def selectSync(where: String = null, columns: List[Column[T, _]] = null, groupBy: String = null, having: String = null, orderBy: String = null, limit: String = null, distinct: Boolean = false): Try[List[T]] = serveTry(in_select(where, columns, groupBy, having, orderBy, limit, distinct))
+	def insertSync(obj: T, replace: Boolean = true): Try[T] = serveTry{
 		in_insert(obj, replace)
 		if (obj._id == -1) throw new SQLiteConstraintException(s"Cannot insert object ${schema.valuesToJsonMap(obj)}.")
 		obj
 	}
-	def saveSync(obj: T, objOld: T = null.asInstanceOf[T], columns: Iterable[Column[T, _]] = null): Try[T] = execTry{
+	def saveSync(obj: T, objOld: T = null.asInstanceOf[T], columns: Iterable[Column[T, _]] = null): Try[T] = serveTry{
 		in_save(obj, objOld, columns)
 		if (obj._id == -1) throw new SQLiteConstraintException(s"Cannot save object ${schema.valuesToJsonMap(obj)}.")
 		obj
 	}
-	def deleteSync(objects: T*): Try[Int] = execTry(in_delete(objects: _*))
-	def deleteSync(where: String = null): Try[Int] = execTry(in_delete(where))
+	def deleteSync(objects: T*): Try[Int] = serveTry(in_delete(objects: _*))
+	def deleteSync(where: String = null): Try[Int] = serveTry(in_delete(where))
 
 
 	/* INTERNAL */

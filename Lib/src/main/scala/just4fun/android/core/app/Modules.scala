@@ -67,20 +67,20 @@ object Modules {
 	def unchecked_unbind[M <: Module : Manifest](clas: Class[M])(implicit activity: Activity): Unit = {
 		mManager.moduleUnbind[M](clas, mManager.getActivityModule(activity))
 	}
-//	def bindSelf[M <: Module : Manifest](implicit context: Context): Unit = macro Macros.bindSelf[M]
-//	def unchecked_bindSelf[M <: Module : Manifest](implicit context: Context): Unit = {
-//		mManager.moduleBind[M](null)
-//	}
-//	def bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = macro Macros.bindSelfC[M]
-//	def unchecked_bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = {
-//		mManager.moduleBind[M](clas, null)
-//	}
-//	def unbindSelf[M <: Module : Manifest](implicit context: Context): Unit = {
-//		mManager.moduleUnbind[M](null)
-//	}
-//	def unbindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = {
-//		mManager.moduleUnbind[M](clas, null)
-//	}
+	//	def bindSelf[M <: Module : Manifest](implicit context: Context): Unit = macro Macros.bindSelf[M]
+	//	def unchecked_bindSelf[M <: Module : Manifest](implicit context: Context): Unit = {
+	//		mManager.moduleBind[M](null)
+	//	}
+	//	def bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = macro Macros.bindSelfC[M]
+	//	def unchecked_bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = {
+	//		mManager.moduleBind[M](clas, null)
+	//	}
+	//	def unbindSelf[M <: Module : Manifest](implicit context: Context): Unit = {
+	//		mManager.moduleUnbind[M](null)
+	//	}
+	//	def unbindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = {
+	//		mManager.moduleUnbind[M](clas, null)
+	//	}
 	def startForeground(id: Int, notification: Notification): Unit = {
 		KeepAliveService.startForeground(id, notification)
 	}
@@ -98,7 +98,12 @@ object Modules {
 }
 
 
+
+
+
+
 /* ANDROID APP  */
+
 trait Modules extends Application {
 	/** Value-class replaces Key-class when instantiating [[Module]]. Can be added by overriding. */
 	protected[app] val preferedModuleClasses: mutable.HashMap[Class[_], Class[_]] = null
@@ -135,8 +140,7 @@ trait Modules extends Application {
 		val valueF = clas.getDeclaredField("DEBUG")
 		valueF.setAccessible(true)
 		valueF.getBoolean(null)
-	}
-	catch {case e: Throwable => println(e); false}
+	} catch {case e: Throwable => println(e); false}
 
 
 }

@@ -4,7 +4,7 @@ import android.app.Activity
 import android.os.Bundle
 import just4fun.android.core.app.Module.RestoreAfterCrashPolicy
 import just4fun.android.core.app.{TwixActivity, Module, TwixModule, Modules}
-import just4fun.android.core.async.{OwnThreadContextHolder, FutureX, NewThreadContextHolder}
+import just4fun.android.core.async.{OwnThreadContextHolder, FutureX, ThreadPoolContextHolder}
 import just4fun.android.libtest.{TestModule, R}
 import just4fun.utils.logger.Logger
 import Logger._
@@ -51,19 +51,22 @@ with TestModule {
 
 	override protected[this] def onActivatingFinish(firstTime: Boolean): Unit = {
 		FutureX.post(delay = 5000) {
-			for (n <- 0 to 0) runRequest3()
+//			for (n <- 0 to 0)
+				runRequest1()
+				runRequest2()
+				runRequest3()
 			logV(s"Dump 0  >>>>>>  ${dumpState()}")
 		}
 	}
-	def runRequest1(): Unit = execAsync {
+	def runRequest1(): Unit = serveAsync {
 		logV(s"<<<< runRequest >>>>")
 	}
-	def runRequest2(): Unit = execAsyncSeq {
-		FutureX {
+	def runRequest2(): Unit = serveAsync {
+		Future {
 			logV("<<<<     runRequestAsyncSeq     >>>>")
 		}
 	}
-	def runRequest3(): Unit = execAsync {
+	def runRequest3(): Unit = serveAsync {
 		logV("<<<< runRequestAsync >>>>")
 		s1.runAsync().onComplete {
 			case Failure(e) => logE(e, "ASYNC REQUEST oops...")
@@ -73,7 +76,7 @@ with TestModule {
 			case Failure(e) => logE(e, "FUTURE REQUEST oops...")
 			case Success(v) => logV(s"<<<<<<<<  End FUTURE REQUEST:  $v  >>>>>>>>")
 		}
-		s1.runAsyncSeq().onCompleteInUiThread {
+		s1.runAsyncSeq().onCompleteInMainThread {
 			case Failure(e) => logE(e, "ASYNCSEQ REQUEST oops...")
 			case Success(v) => logV(s"<<<<<<<<  End ASYNCSEQ REQUEST:  $v  >>>>>>>>")
 		}
@@ -82,24 +85,25 @@ with TestModule {
 
 
 class Module_1 extends Module with TestModule
-with NewThreadContextHolder
+with ThreadPoolContextHolder
 //with ParallelThreadFeature
 {
 	startAfter = 1000
 	stopAfter = 1000
 	dependOn[Module_2]
-	setPassiveMode()
-	def runAsync(): FutureX[Int] = execAsync {
+	setStandbyMode()
+
+	def runAsync(): FutureX[Int] = serveAsync {
 		logV(s"<<<<<<<<  Start ASYNC REQUEST  >>>>>>>>")
 		4
 	}
-	def runFuture(): FutureX[Int] = execAsyncFuture {
+	def runFuture(): FutureX[Int] = serveAsync {
 		Future {
 			logV(s"<<<<<<<<  Start FUTURE REQUEST  >>>>>>>>")
-			4
+			5
 		}
 	}
-	def runAsyncSeq(): FutureX[Int] = execAsyncSeq {
+	def runAsyncSeq(): FutureX[Int] = serveAsync {
 		logV(s"<<<<<<<<  Start ASYNCSEQ REQUEST  >>>>>>>>")
 		(new FutureX).task {
 			logV("<<<<<<<<<<< 1 >>>>>>>>>>>")
@@ -127,7 +131,7 @@ with NewThreadContextHolder
 class Module_2 extends Module with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
-	setPassiveMode()
+	setStandbyMode()
 	dependOn[Module_3]
 }
 
@@ -135,16 +139,16 @@ class Module_2 extends Module with TestModule {
 class Module_3 extends Module with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
-	setPassiveMode()
+	setStandbyMode()
 	val m4 = dependOn[Module_4]
 }
 
 
-class Module_4 extends Module with NewThreadContextHolder with TestModule {
+class Module_4 extends Module with ThreadPoolContextHolder with TestModule {
 //	override def restoreAfterCrashPolicy = RestoreAfterCrashPolicy.IF_SELF_BOUND
 	startAfter = 1000
 	stopAfter = 1000
-	setPassiveMode()
-	bindSelf()
+	setStandbyMode()
+//	bindSelf()
 }
 
