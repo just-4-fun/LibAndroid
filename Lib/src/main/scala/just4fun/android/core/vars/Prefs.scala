@@ -5,17 +5,17 @@ import just4fun.android.core.app.Modules
 import just4fun.core.schemify.PropType
 import just4fun.core.schemify._
 import just4fun.utils.schema.typefactory.{JsonArrayWriter, JsonReader}
-
+import just4fun.utils.logger.Logger._
 
 /* PREFS */
 object Prefs {
-	private lazy val cache = Modules.context.getSharedPreferences("cache", 0)
+	private lazy val cache = Modules.context.getSharedPreferences("vars_cache", 0)
 
 	def apply[T](name: String)(implicit typ: PropType[T], prefs: SharedPreferences = null): T = {
 		val p = if (prefs == null) cache else prefs
 		typ.eval(typ.read(p, name)(PrefReader))
 	}
-	def update[T](name: String, value: T)(implicit typ: PropType[T], prefs: SharedPreferences = null): Unit = {
+	def update[T](name: String, value: T)(implicit typ: PropType[T], prefs: SharedPreferences = null): Unit = if (name != null) {
 		val p = if (prefs == null) cache else prefs
 		val editor = p.edit()
 		typ.write(value, editor, name)(PrefWriter)
@@ -25,7 +25,7 @@ object Prefs {
 		val p = if (prefs == null) cache else prefs
 		p.contains(name)
 	}
-	def remove(name: String)(implicit prefs: SharedPreferences = null): Unit = {
+	def remove(name: String)(implicit prefs: SharedPreferences = null): Unit = if (name != null) {
 		val p = if (prefs == null) cache else prefs
 		p.edit().remove(name).apply()
 	}

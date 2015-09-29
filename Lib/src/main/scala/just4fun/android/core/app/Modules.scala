@@ -2,6 +2,7 @@ package just4fun.android.core.app
 
 import java.lang.Thread.UncaughtExceptionHandler
 
+import just4fun.android.core.vars.Prefs
 import just4fun.utils.logger.{Logger, LoggerConfig}
 
 import scala.collection.mutable
@@ -49,7 +50,7 @@ object Modules {
 
 	def use[M <: Module : Manifest](implicit context: Context): M = macro Macros.use[M]
 	def unchecked_use[M <: Module : Manifest](implicit context: Context): M = {
-		mManager.moduleObtain[M]
+		mManager.moduleUse[M]
 	}
 	def bind[M <: Module : Manifest](implicit activity: Activity): M = macro Macros.bindA[M]
 	def unchecked_bind[M <: Module : Manifest](implicit activity: Activity): M = {
@@ -57,7 +58,7 @@ object Modules {
 	}
 	def bind[M <: Module : Manifest](clas: Class[M])(implicit activity: Activity): M = macro Macros.bindAC[M]
 	def unchecked_bind[M <: Module : Manifest](clas: Class[M])(implicit activity: Activity): M = {
-		mManager.moduleBind[M](clas, mManager.getActivityModule(activity))
+		mManager.moduleBind[M](clas, mManager.getActivityModule(activity), false, false)
 	}
 	def unbind[M <: Module : Manifest](implicit activity: Activity): Unit = macro Macros.unbindA[M]
 	def unchecked_unbind[M <: Module : Manifest](implicit activity: Activity): Unit = {
@@ -67,20 +68,6 @@ object Modules {
 	def unchecked_unbind[M <: Module : Manifest](clas: Class[M])(implicit activity: Activity): Unit = {
 		mManager.moduleUnbind[M](clas, mManager.getActivityModule(activity))
 	}
-	//	def bindSelf[M <: Module : Manifest](implicit context: Context): Unit = macro Macros.bindSelf[M]
-	//	def unchecked_bindSelf[M <: Module : Manifest](implicit context: Context): Unit = {
-	//		mManager.moduleBind[M](null)
-	//	}
-	//	def bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = macro Macros.bindSelfC[M]
-	//	def unchecked_bindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = {
-	//		mManager.moduleBind[M](clas, null)
-	//	}
-	//	def unbindSelf[M <: Module : Manifest](implicit context: Context): Unit = {
-	//		mManager.moduleUnbind[M](null)
-	//	}
-	//	def unbindSelf[M <: Module : Manifest](clas: Class[M])(implicit context: Context): Unit = {
-	//		mManager.moduleUnbind[M](clas, null)
-	//	}
 	def startForeground(id: Int, notification: Notification): Unit = {
 		KeepAliveService.startForeground(id, notification)
 	}
@@ -88,7 +75,7 @@ object Modules {
 		KeepAliveService.stopForeground(removeNotification)
 	}
 
-	/**/
+	/* INTERNAL */
 	private def init(app: Modules): Unit = {
 		i = app
 		mManager = new ModuleManager(i)

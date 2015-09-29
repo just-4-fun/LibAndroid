@@ -48,7 +48,7 @@ with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
 	var N = 0
-	override protected[this] val serveRequestsInParallel: Boolean = true
+	override protected[this] val serveInParallel: Boolean = true
 
 //	setPassiveMode(true)
 

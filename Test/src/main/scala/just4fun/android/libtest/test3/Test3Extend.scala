@@ -44,7 +44,7 @@ abstract class MetaUserModule[M <: MetaModule: Manifest] extends Module with Tes
 	startAfter = 1000
 	stopAfter = 1000
 	setStandbyMode()
-	val m = dependOn[M]
+	val m = bindSync[M]
 	override protected[this] def onActivatingFinish(firstTime: Boolean): Unit = {
 		logV(s"<<<<<<<<<<<<<  ACTIVE [${getClass.getSimpleName}]  >>>>>>>>>>>>>")
 	}

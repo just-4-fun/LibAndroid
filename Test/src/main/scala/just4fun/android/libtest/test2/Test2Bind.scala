@@ -1,16 +1,15 @@
 package just4fun.android.libtest.test2
 
+import scala.concurrent.Future
+import scala.util.{Failure, Success}
+
 import android.app.Activity
 import android.os.Bundle
-import just4fun.android.core.app.Module.RestoreAfterCrashPolicy
-import just4fun.android.core.app.{TwixActivity, Module, TwixModule, Modules}
-import just4fun.android.core.async.{OwnThreadContextHolder, FutureX, ThreadPoolContextHolder}
-import just4fun.android.libtest.{TestModule, R}
+import just4fun.android.core.app.{Module, TwixActivity, TwixModule}
+import just4fun.android.core.async.{FutureX, ThreadPoolContextHolder}
+import just4fun.android.libtest.{R, TestModule}
 import just4fun.utils.logger.Logger
-import Logger._
-
-import scala.concurrent.Future
-import scala.util.{Success, Failure}
+import just4fun.utils.logger.Logger._
 
 class TestActivity extends TwixActivity[TestActivity, MainModule] {
 	implicit val context = this
@@ -90,7 +89,7 @@ with ThreadPoolContextHolder
 {
 	startAfter = 1000
 	stopAfter = 1000
-	dependOn[Module_2]
+	bindSync[Module_2]
 	setStandbyMode()
 
 	def runAsync(): FutureX[Int] = serveAsync {
@@ -132,7 +131,7 @@ class Module_2 extends Module with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
 	setStandbyMode()
-	dependOn[Module_3]
+	bindSync[Module_3]
 }
 
 
@@ -140,12 +139,11 @@ class Module_3 extends Module with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
 	setStandbyMode()
-	val m4 = dependOn[Module_4]
+	val m4 = bindSync[Module_4]
 }
 
 
 class Module_4 extends Module with ThreadPoolContextHolder with TestModule {
-//	override def restoreAfterCrashPolicy = RestoreAfterCrashPolicy.IF_SELF_BOUND
 	startAfter = 1000
 	stopAfter = 1000
 	setStandbyMode()

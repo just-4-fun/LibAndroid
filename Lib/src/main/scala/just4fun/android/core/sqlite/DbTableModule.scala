@@ -11,7 +11,7 @@ import scala.util.{Try, Failure, Success}
 
 abstract class DbTableModule[DB <: DbModule : Manifest, T <: DbObject : Manifest] extends Module {
 	implicit val schema: DbSchema[T]
-	protected[this] val db = unchecked_dependOn[DB]
+	protected[this] val db = unchecked_bindSync[DB]
 	override implicit val futureContext: FutureContext = db.futureContext
 	setStandbyMode()
 
@@ -96,6 +96,7 @@ abstract class DbTableModule[DB <: DbModule : Manifest, T <: DbObject : Manifest
 
 	protected[this] def open(): FutureX[Unit] = FutureX {
 		new TableStarter
+		()
 	}
 
 

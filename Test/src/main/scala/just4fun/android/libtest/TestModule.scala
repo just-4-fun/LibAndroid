@@ -4,10 +4,8 @@ import just4fun.android.core.app.Module
 import just4fun.android.core.async.FutureX
 import just4fun.utils.logger.Logger._
 
-trait TestModule {
-	this: Module =>
-
-	override val moduleID: String = getClass.getSimpleName
+trait TestModule extends Module {
+	override lazy val moduleID: String = getClass.getSimpleName
 	var activating = true
 	var deactivating = true
 	var startAfter = 0

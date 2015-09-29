@@ -74,7 +74,7 @@ with TestModule {
 	stopAfter = 5000
 	setStandbyMode(true)
 
-	override protected[this] def onBeforeTerminalDeactivating(): Unit ={
+	override protected[this] def onBeforeDeactivating(last: Boolean): Unit ={
 		logD(s"${moduleID}: ON BEFORE TERMINAL DEACTIVATING")
 		if (firstTime) {
 			execSomething()

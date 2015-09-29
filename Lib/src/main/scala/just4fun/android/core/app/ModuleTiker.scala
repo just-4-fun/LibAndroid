@@ -30,7 +30,7 @@ private[app] object ModuleTiker extends Tiker  {
 //				logI(s">  TIK UPDATE  $requests : $updates : $changes")
 				if (s.onUpdateState()) {
 					changes += 1
-					logI(s">  TIK UPDATE with change  $requests : $updates : $changes")
+					logI(s">  TIK UPDATE   $requests : $updates : $changes")
 				}
 			case _ =>
 		}

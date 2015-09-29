@@ -40,7 +40,7 @@ class MainModule extends Module with TestModule {
 	startAfter = 0
 	stopAfter = 10000
 //	val m1 = bind[Module_1]
-	val m1 = dependOn[Module_1]
+	val m1 = bindSync[Module_1]
 
 	override protected[this] def onActivatingStart(firstTime: Boolean): Unit = {
 		super.onActivatingStart(firstTime)

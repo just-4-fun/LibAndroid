@@ -1,18 +1,18 @@
 package just4fun.android.core.app
 
-import just4fun.utils.logger.Logger
+import java.lang
 
 import scala.collection.mutable
 import scala.language.existentials
 
-import android.app.{Activity, Application}
+import android.app.Activity
 import android.content.res.Configuration
 import android.os.Bundle
-import just4fun.android.core.app.Module.RestoreAfterCrashPolicy.IF_SELF_BOUND
-import just4fun.android.core.async.ThreadPoolContext
+import just4fun.android.core.async.{MainThreadContext, FutureX, ThreadPoolContext}
 import just4fun.android.core.vars.Prefs
 import just4fun.core.schemify.PropType
-import Logger._
+import just4fun.utils.logger.Logger
+import just4fun.utils.logger.Logger._
 import just4fun.utils.schema.ListType
 
 private[app] class ModuleManager(app: Modules) {
@@ -24,41 +24,52 @@ private[app] class ModuleManager(app: Modules) {
 
 	/* MODULE  LIFECYCLE */
 	def isEmpty = modules.isEmpty
-	
-	def moduleObtain[M <: Module : Manifest]: M = synchronized {
+	def containsAliveModule(cls: Class[_]): Boolean = {
+		modules.exists(m => !m.isDestroying && m.getClass == cls)
+	}
+
+	def moduleUse[M <: Module : Manifest]: M = synchronized {
 		val cls: Class[M] = implicitly[Manifest[M]].runtimeClass.asInstanceOf[Class[M]]
-		val m = modules.collectFirst { case m: M if !m.isDestroying => m } match {
+		val m = modules.find(m => m.getClass == cls && !m.isDestroying) match {
 			case Some(m) => m
 			case _ => val m = moduleConstruct(cls)
-				modules += m
+				moduleAdd(m)
 				m
 		}
 		m.asInstanceOf[M]
-
 	}
-	def moduleBind[M <: Module : Manifest](binding: Module): M = {
+	def moduleBind[M <: Module : Manifest](binding: Module, sync: Boolean = false): M = {
 		val cls: Class[M] = implicitly[Manifest[M]].runtimeClass.asInstanceOf[Class[M]]
-		moduleBind[M](cls, binding)
+		moduleBind[M](cls, binding, sync, false)
 	}
-	def moduleBind[M <: Module : Manifest](clas: Class[M], binding: Module): M = synchronized {
+	def moduleBind[M <: Module : Manifest](clas: Class[M], binding: Module, sync: Boolean, restore: Boolean): M = synchronized {
 		val cls = getPreferedModuleClass(clas)
-		val m = modules.collectFirst { case m: M if !m.isDestroying => m } match {
+		val m = modules.find(m => m.getClass == cls && !m.isDestroying) match {
 			case Some(m) => m
 			case _ => // case when self using while self constructing
 				val m = if (binding != null && binding.getClass == cls) binding.asInstanceOf[M]
-				else moduleConstruct(cls, binding)
-				if (!modules.contains(m)) modules += m
+				else moduleConstruct(cls, binding, restore)
+				moduleAdd(m)
 				m
 		}
-		//		logV(s"BIND par= ${m.ID};  ch= ${binding}}")
-		m.bindingAdd(binding)
-		val selfBound = binding == null || binding.getClass == cls
-		if (selfBound && m.restoreAfterCrashPolicy == IF_SELF_BOUND && restorables.add(cls)) updateRestorablesPref()
+		m.bindingAdd(binding, sync)
+		val self = binding == null || binding.getClass == cls
+		//		logD(s"BIND [${if (self) "self" else binding.moduleID}] to [${m.moduleID}];  sync? $sync;  ")
+		if (self && m.restore) updateRestorables(m.getClass, true)
 		m.asInstanceOf[M]
 	}
-
-	private def moduleConstruct[M <: Module](cls: Class[M], binding: Module = null): M = {
-		try cls.newInstance()
+	private def moduleConstruct[M <: Module](cls: Class[M], binding: Module = null, restore: Boolean = false): M = {
+		// DEFs
+		def constrEmpty(err: Throwable = null): M = {
+			try cls.newInstance()
+			catch {case e: Throwable => if (err == null) constrRestorable(e) else throw err}
+		}
+		def constrRestorable(err: Throwable = null): M = {
+			try cls.getDeclaredConstructor(classOf[Boolean]).newInstance(new lang.Boolean(restore))
+			catch {case e: Throwable => if (err == null) constrEmpty(e) else throw err}
+		}
+		// EXEC
+		try if (restore) constrRestorable() else constrEmpty()
 		catch {
 			case e: StackOverflowError =>
 				val ex = CyclicUsageException(s"${cls.getName}, ${if (binding != null) binding.getClass.getName else ""}")
@@ -66,26 +77,34 @@ private[app] class ModuleManager(app: Modules) {
 				throw ex
 		}
 	}
-	def moduleHasNoPredecessor(implicit module: Module): Boolean = {
-		!modules.exists(_.isPredecessorOf(module))
+	private def moduleAdd(m: Module): Unit = {
+		val first = modules.isEmpty
+		if (!modules.contains(m)) modules += m
+		if (first && Modules.aManager.uiContext.isEmpty) KeepAliveService.start()
 	}
-	def moduleUnbind[M <: Module : Manifest](binding: Module): Option[M] = {
+	def moduleHasPredecessor(implicit module: Module): Boolean = {
+		modules.exists(_.isPredecessorOf(module))
+	}
+	def moduleUnbind[M <: Module : Manifest](binding: Module): Unit = {
 		val cls: Class[M] = implicitly[Manifest[M]].runtimeClass.asInstanceOf[Class[M]]
 		moduleUnbind[M](cls, binding)
 	}
-	def moduleUnbind[M <: Module : Manifest](clas: Class[M], binding: Module): Option[M] = {
+	def moduleUnbind[M <: Module : Manifest](clas: Class[M], binding: Module): Unit = {
 		val cls = getPreferedModuleClass(clas)
-		modules.collectFirst { case m: M if !m.isDestroying =>
-			val selfUse = binding == null || binding.getClass == cls
-			if (selfUse && m.isBound && restorables.remove(cls)) updateRestorablesPref()
+		modules.find(m => m.getClass == cls && !m.isDestroying).foreach { m =>
+			val self = binding == null || binding.getClass == cls
+			if (self) updateRestorables(cls, false)
+			//			logD(s"UNBIND [${if (self) "self" else binding.moduleID}] from [${m.moduleID}]; ")
 			m.bindingRemove(binding)
-			m
 		}
 	}
-	def moduleDestroyed(m: Module): Unit = {
+	def moduleUnbindFromAll(implicit m: Module): Unit = {
+		modules.foreach(_.bindingRemove(m))
+	}
+	def moduleDestroyed(implicit m: Module): Unit = {
 		modules -= m
 		modules.foreach(_.bindingRemove(m))
-		if (restorables.remove(m.getClass)) updateRestorablesPref()
+		updateRestorables(m.getClass, false)
 		if (modules.isEmpty) onExit()
 	}
 	private def onExit(): Unit = {
@@ -108,23 +127,24 @@ private[app] class ModuleManager(app: Modules) {
 	def checkRestore(): Unit = {
 		Prefs[List[String]]("_restorables_") match {
 			case null | Nil =>
-			case names => updateRestorablesPref()
-				names.foreach { name =>
-					try {
-						val cls = Class.forName(name)
-						implicit val c = app
-						logV(s"BEFORE  RESTORED  ${cls.getSimpleName}")
-						// TODO create mod with restoring param = true
-						moduleBind(cls.asInstanceOf[Class[Module]], null)
-						logV(s"AFTER RESTORED  ${cls.getSimpleName}")
-					}
-					catch loggedE
-				}
+			case names => updateRestorables(null, false)
+				FutureX(restore(names))(MainThreadContext)
 		}
 	}
-	private def updateRestorablesPref(): Unit = {
-		Prefs("_restorables_") = restorables.map(_.getName).toList
-		logV(s"Restorables > ${Prefs[String]("_restorables_")}")
+	private def restore(modules: List[String]): Unit = modules.foreach { name =>
+		try {
+			val cls = Class.forName(name)
+			logV(s"BEFORE  RESTORED  ${cls.getSimpleName};  not yet created? ${!containsAliveModule(cls)}")
+			if (!containsAliveModule(cls)) moduleBind(cls.asInstanceOf[Class[Module]], null, false, true)
+			logV(s"AFTER RESTORED  ${cls.getSimpleName}")
+		}
+		catch loggedE
+	}
+	def updateRestorables(cls: Class[_], yeap: Boolean): Unit = {
+		if (cls == null || (yeap && restorables.add(cls)) || (!yeap && restorables.remove(cls))) {
+			Prefs("_restorables_") = restorables.map(_.getName).toList
+			logV(s"Restorables > ${Prefs[String]("_restorables_")}")
+		}
 	}
 
 	/* SUBSTITUTE CLASS */
@@ -146,7 +166,7 @@ private[app] class ModuleManager(app: Modules) {
 		modules.collectFirst { case m: ActivityModule if m.pairedActivity(a) && !m.isDestroying => m } match {
 			case Some(m) => m
 			case None => a match {
-				case a: TwixActivity[_, _] => moduleConstruct(a.moduleClass()).setActivityClass(a.getClass)
+				case a: TwixActivity[_, _] => moduleConstruct(a.moduleClass).setActivityClass(a.getClass)
 				case _ => new ActivityModule {}.setActivityClass(a.getClass) // new inst of new class
 			}
 		}
@@ -167,11 +187,14 @@ class ModuleException(message: String) extends Exception(message) {
 	def this() = this("")
 }
 
-object ModuleNotAliveException extends ModuleException("Module cannot execute request because it's not yet activated.")
+object ModuleNotActivatedException extends ModuleException("Module cannot execute request because it's not yet activated.")
 
-object ModuleAbandonedException extends ModuleException("Module activating is stopped since it is abandoned.")
+case class SyncParentFailedException(m: Module) extends ModuleException(s"Sync-bound parent ${m.moduleID} failed with  ${m.failure.foreach(_.getMessage)}")
+case class BindingDeadModuleException(m: Module) extends ModuleException(s"Trying to bind module ${m.moduleID} is in state ${m.state}")
 
-case class ParentDependencyFailedException(m: Module) extends ModuleException(s"Dependency parent ${m.moduleID} failed with  ${m.failure.foreach(_.getMessage)}")
+case class BindingModuleError(mClas: String, cause: Throwable) extends ModuleException(s"Exception while binding $mClas") {
+	initCause(cause)
+}
 
 case class CyclicUsageException(trace: String) extends ModuleException(s"Cyclic usage detected in chain [$trace]")
 

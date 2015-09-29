@@ -44,12 +44,11 @@ class TestActivity extends Activity {
 }
 
 
-class MainModule extends Module with ModuleServabilityListener
+class MainModule extends TestModule
 //with OwnThreadHolderX
 //with ThreadPoolContextHolder
-with TestModule {
+with ModuleServabilityListener{
 
-	override val moduleID: String = "Main"
 	startAfter = 1000
 	stopAfter = 1000
 	val m1 = bind[Module_1]
@@ -65,11 +64,10 @@ with TestModule {
 
 
 
-class Module_1 extends Module with TestModule {
-	override val moduleID: String = "M1"
+class Module_1 extends TestModule {
 	startAfter = 1000
 	stopAfter = 1000
-	override protected[this] val serveRequestsInParallel: Boolean = true
+	override protected[this] val serveInParallel: Boolean = true
 	setStandbyMode(true)
 
 	def execSomething(): Unit = serveAsync{

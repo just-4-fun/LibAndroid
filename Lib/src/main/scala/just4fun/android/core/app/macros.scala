@@ -39,16 +39,16 @@ object Macros {
 		import c.universe._
 		q"${symbolOf[Modules].companion}.unchecked_unbind[${weakTypeOf[T]}]($clas)($m, $activity)"
 	}
-	def dependOn[T: c.WeakTypeTag](c: Context)(m: c.Tree): c.Tree = {
-		checkT[T](c, "Module can not depend on itself.")
+	def bindSync[T: c.WeakTypeTag](c: Context)(m: c.Tree): c.Tree = {
+		checkT[T](c, "Module can not be bound with sync to itself.")
 		import c.universe._
-		q"unchecked_dependOn[${weakTypeOf[T]}]($m)"
+		q"unchecked_bindSync[${weakTypeOf[T]}]($m)"
 	}
-	//	def bindSelf[T: c.WeakTypeTag](c: Context)(m: c.Tree, context: c.Tree): c.Tree = {
-	//		checkT[T](c, null)
-	//		import c.universe._
-	//		q"${symbolOf[Modules].companion}.unchecked_bindSelf[${weakTypeOf[T]}]($m, $context)"
-	//	}
+//	def bindSelf[T: c.WeakTypeTag](c: Context): c.Tree = {
+//		checkT[T](c, null)
+//		import c.universe._
+//		q"${symbolOf[Modules].companion}.unchecked_bindSelf[${weakTypeOf[T]}]"
+//	}
 	//	def bindSelfC[T: c.WeakTypeTag](c: Context)(clas: c.Tree)(m: c.Tree, context: c.Tree): c.Tree = {
 	//		checkT[T](c, null)
 	//		import c.universe._
@@ -61,12 +61,19 @@ object Macros {
 		val ot = c.internal.enclosingOwner.owner
 		if (selfMsg != null && mt == ot) abort(selfMsg)
 		else if (mt == symbolOf[Nothing]) abort(s"Type parameter [M <: Module] should be specified explicitly.")
-		if (chkConst && !hasConstr[T](c)) abort(s"Module [${mt.name}] should have public zero-argument constructor.")
+		if (chkConst && !hasConstr[T](c)) abort(s"Module [${mt.name}] should have public zero-argument or one-boolean-argument constructor.")
 	}
 	private def hasConstr[T: c.WeakTypeTag](c: Context): Boolean = {
 		c.symbolOf[T].toType.decls.exists { d =>
-//	if (d.isConstructor) prn(s"T=${c.symbolOf[T]} ;  D= $d;  Constr? ${d.isConstructor};  isPublic? ${d.isPublic};  nullable? ${d.asMethod.paramLists.isEmpty};  isEmpty? ${d.asMethod.paramLists.head.isEmpty} ")(c)
-			d.isConstructor && d.isPublic && (d.asMethod.paramLists.isEmpty || d.asMethod.paramLists.head.isEmpty)
+			d.isConstructor && d.isPublic && {
+				val paramss = d.asMethod.paramLists
+				paramss.isEmpty || paramss.head.isEmpty || (paramss match {
+					case (param :: Nil) :: Nil => param.info =:= c.typeOf[Boolean]
+					case _ => false
+				})
+//				val params = paramss.map(pms => pms.map(p => s"${p.fullName}:${p.info}").mkString(", ")).mkString(" : ")
+//				prn(s"T=${c.symbolOf[T]} ;  D= $d;  Constr? ${d.isConstructor};  isPublic? ${d.isPublic};  nullable? ${d.asMethod.paramLists.isEmpty};  isEmpty? ${d.asMethod.paramLists.head.isEmpty} ;   paramss>> $params;  ok? $ok")(c)
+			}
 		}
 	}
 
