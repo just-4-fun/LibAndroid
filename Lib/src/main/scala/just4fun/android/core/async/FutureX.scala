@@ -79,10 +79,10 @@ sealed class FutureXBase[T] extends Runnable {
 			if (_context != null) _context.cancel(this)
 		}
 	}
-	def cancel(): Unit = synchronized {
+	def cancel(err: Throwable = null): Unit = synchronized {
 		if (_state < DONE) {
 			if (_state == WAIT && _context != null) _context.cancel(this)
-			finishExecute(Failure(new CancellationException))
+			finishExecute(Failure(if (err == null) new CancellationException else err))
 		}
 	}
 
@@ -90,11 +90,13 @@ sealed class FutureXBase[T] extends Runnable {
 	def onSuccessInMainThread[U](pf: PartialFunction[T, U]): Unit = future.onSuccess(pf)(MainThreadContext)
 	def onFailureInMainThread[U](pf: PartialFunction[Throwable, U]): Unit = future.onFailure(pf)(MainThreadContext)
 
+	protected[this] def onFinishExecute(): Unit = {}
+
 	/* INTERNAL */
 
 	override final def run(): Unit = startExecute()
 
-	def startExecute(): Unit = {
+	private[async] def startExecute(): Unit = {
 		val exec = root synchronized {
 			_state match {
 				case WAIT => _state = EXEC; true
@@ -107,8 +109,9 @@ sealed class FutureXBase[T] extends Runnable {
 		}
 		else if (_state != DONE) finishExecute(Failure(new IllegalStateException(s"Can't execute in state ${_state}")))
 	}
-	def finishExecute(v: Try[T]): Unit = root synchronized {
+	private[async] def finishExecute(v: Try[T]): Unit = root synchronized {
 		_state = DONE
+		try onFinishExecute() catch loggedE
 		v match {
 			case Success(v) => promise.trySuccess(v)
 			case Failure(e: CancellationException) => promise.tryFailure(e)
@@ -178,10 +181,10 @@ class FutureXP[T, V] private[async](val parent: FutureX[V]) extends FutureX[T] {
 			parent.deactivate()
 		}
 	}
-	override def cancel(): Unit = root synchronized {
+	override def cancel(err: Throwable = null): Unit = root synchronized {
 		if (_state < DONE) {
 			parent.cancel()
-			finishExecute(Failure(new CancellationException))
+			finishExecute(Failure(if (err == null) new CancellationException else err))
 		}
 	}
 	

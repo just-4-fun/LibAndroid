@@ -13,7 +13,7 @@ abstract class DbTableModule[DB <: DbModule : Manifest, T <: DbObject : Manifest
 	implicit val schema: DbSchema[T]
 	protected[this] val db = unchecked_bindSync[DB]
 	override implicit val futureContext: FutureContext = db.futureContext
-	setStandbyMode()
+	standbyMode = true
 
 	protected[this] def indexes: Set[DbTableIndex] = Set.empty
 	protected[this] def upgrades: Seq[DbTableUpgrade] = List.empty

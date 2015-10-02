@@ -72,7 +72,7 @@ private[app] class ModuleManager(app: Modules) {
 		try if (restore) constrRestorable() else constrEmpty()
 		catch {
 			case e: StackOverflowError =>
-				val ex = CyclicUsageException(s"${cls.getName}, ${if (binding != null) binding.getClass.getName else ""}")
+				val ex = new CyclicBindingException(cls, s"${cls.getName}, ${if (binding != null) binding.getClass.getName else ""}")
 				ex.initCause(e)
 				throw ex
 		}
@@ -183,18 +183,19 @@ private[app] class ModuleManager(app: Modules) {
 
 
 /* EXCEPTIONS */
-class ModuleException(message: String) extends Exception(message) {
+abstract class ModuleException(message: String) extends Exception(message) {
 	def this() = this("")
 }
 
-object ModuleNotActivatedException extends ModuleException("Module cannot execute request because it's not yet activated.")
-
-case class SyncParentFailedException(m: Module) extends ModuleException(s"Sync-bound parent ${m.moduleID} failed with  ${m.failure.foreach(_.getMessage)}")
-case class BindingDeadModuleException(m: Module) extends ModuleException(s"Trying to bind module ${m.moduleID} is in state ${m.state}")
-
-case class BindingModuleError(mClas: String, cause: Throwable) extends ModuleException(s"Exception while binding $mClas") {
+class ModuleBindingException(val moduleClass: Class[_], cause: Throwable = null, message: String = "") extends ModuleException(s"Failed binding ${moduleClass.getName}. $message") {
 	initCause(cause)
 }
 
-case class CyclicUsageException(trace: String) extends ModuleException(s"Cyclic usage detected in chain [$trace]")
+class DeadModuleBindingException(moduleClass: Class[_]) extends ModuleBindingException(moduleClass)
 
+
+class CyclicBindingException(moduleClass: Class[_], trace: String) extends ModuleBindingException(moduleClass, null, s"Cyclic usage detected in chain [$trace]")
+
+object ModuleServiceException extends ModuleException("Module cannot serve request because it's not yet activated.")
+
+case class BoundParentException(parent: Module) extends ModuleException(s"Sync-bound parent ${parent.moduleID} failed with  ${parent.failure.foreach(_.getMessage)}")

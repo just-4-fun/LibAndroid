@@ -16,7 +16,7 @@ import scala.util.{Success, Failure, Try}
 class DbModule extends Module with OwnThreadContextHolder {
 	val name: String = "main"
 	var db: SQLiteDatabase = _
-	setStandbyMode()
+	standbyMode = true
 
 	/* LIFECYCLE */
 	override protected[this] def onActivatingStart(firstTime: Boolean): Unit = {

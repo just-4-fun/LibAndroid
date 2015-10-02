@@ -72,9 +72,9 @@ with TestModule {
 	override protected[this] val serveStandbyLatency: Int = 2000
 	startAfter = 1000
 	stopAfter = 5000
-	setStandbyMode(true)
+	standbyMode = true
 
-	override protected[this] def onBeforeDeactivating(last: Boolean): Unit ={
+	override protected[this] def onBeforeTerminalDeactivating(): Unit ={
 		logD(s"${moduleID}: ON BEFORE TERMINAL DEACTIVATING")
 		if (firstTime) {
 			execSomething()

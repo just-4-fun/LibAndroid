@@ -68,7 +68,7 @@ class Module_1 extends TestModule {
 	startAfter = 1000
 	stopAfter = 1000
 	override protected[this] val serveInParallel: Boolean = true
-	setStandbyMode(true)
+	standbyMode = true
 
 	def execSomething(): Unit = serveAsync{
 		logD(s"${moduleID}:  execSomething")

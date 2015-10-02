@@ -41,7 +41,7 @@ class Module_1(restored: Boolean) extends TestModule {
 	logD(s"[$moduleID]:  restored? $restored")
 	startAfter = 1000
 	stopAfter = 1000
-//	restorableAfterAbort = true
+//	restorableAfterAbort =
 	bindSelf
 	override protected[this] def onActivatingFinish(initial: Boolean): Unit = {
 		super.onActivatingFinish(initial)

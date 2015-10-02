@@ -37,8 +37,6 @@ NOTE: app ui stopped > low memo > keepAlive killed wo callbacks > after 4 minute
 /* APP  */
 
 object Modules {
-	var afterCrash = false // TODO
-
 	private var i: Modules = null
 	private[app] var mManager: ModuleManager = null
 	private[app] var aManager: ActivityManager = null
@@ -95,18 +93,8 @@ trait Modules extends Application {
 	/** Value-class replaces Key-class when instantiating [[Module]]. Can be added by overriding. */
 	protected[app] val preferedModuleClasses: mutable.HashMap[Class[_], Class[_]] = null
 
-	LoggerConfig
-	  .debug(true)
-	  .logDef(Log.println(_, _, _))
+	LoggerConfig.debug(true).logDef(Log.println(_, _, _))
 
-	Thread.setDefaultUncaughtExceptionHandler(new UncaughtExceptionHandler {
-		private val sysErrorHandler = Thread.getDefaultUncaughtExceptionHandler
-		override def uncaughtException(thread: Thread, ex: Throwable): Unit = {
-			logE(ex)
-			if (sysErrorHandler != null) sysErrorHandler.uncaughtException(thread, ex)
-			else System.exit(2)
-		}
-	})
 
 	override def onCreate(): Unit = {
 		super.onCreate()
@@ -116,7 +104,9 @@ trait Modules extends Application {
 		logV(s"<<<<<<<<<<<<<<<<<<<<                    APP   CONSTRUCTED                    >>>>>>>>>>>>>>>>>>>>")
 		Modules.init(this)
 	}
+
 	override def onTrimMemory(level: Int): Unit = Modules.mManager.onTrimMemory(level)
+
 	override def onConfigurationChanged(newConfig: Configuration): Unit = Modules.mManager.onConfigurationChanged(newConfig)
 
 	protected[app] def onExit(): Unit = {}

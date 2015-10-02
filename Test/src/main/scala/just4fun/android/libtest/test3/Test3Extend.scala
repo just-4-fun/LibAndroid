@@ -34,7 +34,7 @@ with TestModule {
 abstract class MetaModule extends Module with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
-	setStandbyMode()
+	standbyMode = true
 	def useMe(msg: String) = serveAsync{
 		logV(s"<<<<<<<<<<<<<  USE ME [$msg]  >>>>>>>>>>>>>")
 	}
@@ -43,7 +43,7 @@ abstract class MetaModule extends Module with TestModule {
 abstract class MetaUserModule[M <: MetaModule: Manifest] extends Module with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
-	setStandbyMode()
+	standbyMode = true
 	val m = bindSync[M]
 	override protected[this] def onActivatingFinish(firstTime: Boolean): Unit = {
 		logV(s"<<<<<<<<<<<<<  ACTIVE [${getClass.getSimpleName}]  >>>>>>>>>>>>>")

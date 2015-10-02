@@ -33,13 +33,13 @@ object PrefVar {
 	def apply[T]: PrefVar[T] = macro MacroDefs.genPrefVar[T]
 	/** WARN: sync refactoring with macros */
 	def apply[T: Manifest](name: String, value: => Any)(implicit context: Module, typ: PropType[T]): PrefVar[T] = {
-		val v = new PrefVar[T](name+" "+context.getClass.getName)
-		if (value != None && !Modules.afterCrash) v.update(value.asInstanceOf[T])
+		val v = new PrefVar[T](name + " " + context.getClass.getName)
+		if (value != None && (/* todo !context.restorableAfterAbort || */ !context.isAfterAbort)) v.update(value.asInstanceOf[T])
 		v
 	}
 }
 
-final class PrefVar[T] private (val name: String)(implicit typ: PropType[T]) extends SyncVar[T] {
+final class PrefVar[T] private(val name: String)(implicit typ: PropType[T]) extends SyncVar[T] {
 	private[this] var value: T = null.asInstanceOf[T]
 	private[this] var inited = false
 	/** WARN: Calling before Application.onCreate throws error as SharedPreferences is not yet inited. */
@@ -68,7 +68,7 @@ object TempVar {
 	}
 }
 
-final class TempVar[T] private (val name: String)(implicit typ: PropType[T]) extends SyncVar[T] {
+final class TempVar[T] private(val name: String)(implicit typ: PropType[T]) extends SyncVar[T] {
 	private[this] var value: T = null.asInstanceOf[T]
 	def apply(): T = value
 	def update(v: T) = value = v
@@ -92,7 +92,7 @@ object FileVar {
 	}
 }
 
-final class FileVar[T] private (val name: String, fileName: String)(implicit context: Module, typ: ReachSchema[T]) extends AsyncVar[T] {
+final class FileVar[T] private(val name: String, fileName: String)(implicit context: Module, typ: ReachSchema[T]) extends AsyncVar[T] {
 	private[this] implicit val futureContext = ThreadPoolContext
 	private[this] var value: FutureX[T] = null.asInstanceOf[FutureX[T]]
 	private[this] var inited = false

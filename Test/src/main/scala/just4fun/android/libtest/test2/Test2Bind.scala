@@ -7,7 +7,7 @@ import android.app.Activity
 import android.os.Bundle
 import just4fun.android.core.app.{Module, TwixActivity, TwixModule}
 import just4fun.android.core.async.{FutureX, ThreadPoolContextHolder}
-import just4fun.android.libtest.{R, TestModule}
+import just4fun.android.libtest.{TestModule, R}
 import just4fun.utils.logger.Logger
 import just4fun.utils.logger.Logger._
 
@@ -90,7 +90,7 @@ with ThreadPoolContextHolder
 	startAfter = 1000
 	stopAfter = 1000
 	bindSync[Module_2]
-	setStandbyMode()
+	standbyMode = true
 
 	def runAsync(): FutureX[Int] = serveAsync {
 		logV(s"<<<<<<<<  Start ASYNC REQUEST  >>>>>>>>")
@@ -130,7 +130,7 @@ with ThreadPoolContextHolder
 class Module_2 extends Module with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
-	setStandbyMode()
+	standbyMode = true
 	bindSync[Module_3]
 }
 
@@ -138,7 +138,7 @@ class Module_2 extends Module with TestModule {
 class Module_3 extends Module with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
-	setStandbyMode()
+	standbyMode = true
 	val m4 = bindSync[Module_4]
 }
 
@@ -146,7 +146,7 @@ class Module_3 extends Module with TestModule {
 class Module_4 extends Module with ThreadPoolContextHolder with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
-	setStandbyMode()
+	standbyMode = true
 //	bindSelf()
 }
 
