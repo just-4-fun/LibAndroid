@@ -48,13 +48,12 @@ with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
 	var N = 0
-	override protected[this] val serveInParallel: Boolean = true
 
 //	setPassiveMode(true)
 
 	def togglePauseTests(): Unit = {
-		if (isServingRequestsPaused) resumeServingRequests() else pauseServingRequests()
-		logD(s"SERVING PAUSED?  $isServingRequestsPaused;  queueSize= ${requests.length};  states: [${requests.map(_.state).mkString(", ")}]  ")
+		if (isRequestsServingPaused) resumeRequestsServing() else pauseRequestsServing()
+		logD(s"SERVING PAUSED?  $isRequestsServingPaused;  queueSize= ${requests.length};  states: [${requests.map(_.state).mkString(", ")}]  ")
 	}
 	def test(): FutureX[Int] = {
 		val id = N

@@ -89,8 +89,11 @@ sealed class FutureXBase[T] extends Runnable {
 	def onCompleteInMainThread[U](f: Try[T] => U): Unit = future.onComplete(f)(MainThreadContext)
 	def onSuccessInMainThread[U](pf: PartialFunction[T, U]): Unit = future.onSuccess(pf)(MainThreadContext)
 	def onFailureInMainThread[U](pf: PartialFunction[Throwable, U]): Unit = future.onFailure(pf)(MainThreadContext)
+	def onCompleteInUi[U](f: Try[T] => U): Unit = future.onComplete(f)(UiThreadContext)
+	def onSuccessInUi[U](pf: PartialFunction[T, U]): Unit = future.onSuccess(pf)(UiThreadContext)
+	def onFailureInUi[U](pf: PartialFunction[Throwable, U]): Unit = future.onFailure(pf)(UiThreadContext)
 
-	protected[this] def onFinishExecute(): Unit = {}
+	protected[this] def onFinishExecute(v: Try[T]): Unit = {}
 
 	/* INTERNAL */
 
@@ -111,7 +114,7 @@ sealed class FutureXBase[T] extends Runnable {
 	}
 	private[async] def finishExecute(v: Try[T]): Unit = root synchronized {
 		_state = DONE
-		try onFinishExecute() catch loggedE
+		try onFinishExecute(v) catch loggedE
 		v match {
 			case Success(v) => promise.trySuccess(v)
 			case Failure(e: CancellationException) => promise.tryFailure(e)

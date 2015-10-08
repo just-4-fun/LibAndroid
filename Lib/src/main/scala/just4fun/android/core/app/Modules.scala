@@ -2,14 +2,18 @@ package just4fun.android.core.app
 
 import java.lang.Thread.UncaughtExceptionHandler
 
+import android.content.pm.PackageManager
+import android.os.{Build, Bundle}
 import just4fun.android.core.vars.Prefs
+import just4fun.utils.Utils._
 import just4fun.utils.logger.{Logger, LoggerConfig}
 
+import scala.StringBuilder
 import scala.collection.mutable
 import scala.language.experimental.macros
 
 import android.app.{Activity, Application, Notification}
-import android.content.Context
+import android.content.{Intent, Context}
 import android.content.res.Configuration
 import android.util.Log
 import just4fun.android.core.{LibRoot, BuildConfig}
@@ -102,6 +106,7 @@ trait Modules extends Application {
 		  .addPackageRoot(classOf[LibRoot].getPackage.getName)
 		  .addPackageRoot(getPackageName)
 		logV(s"<<<<<<<<<<<<<<<<<<<<                    APP   CONSTRUCTED                    >>>>>>>>>>>>>>>>>>>>")
+		checkRequiredManifestEntries()
 		Modules.init(this)
 	}
 
@@ -112,14 +117,52 @@ trait Modules extends Application {
 	protected[app] def onExit(): Unit = {}
 
 
-	private[this] def isDebug: Boolean = try {
-		val clas = Class.forName(getPackageName + ".BuildConfig")
-		val valueF = clas.getDeclaredField("DEBUG")
-		valueF.setAccessible(true)
-		valueF.getBoolean(null)
-	} catch {case e: Throwable => println(e); false}
-
-
+	private[this] def isDebug: Boolean = {
+		try {
+			val clas = Class.forName(getPackageName + ".BuildConfig")
+			val valueF = clas.getDeclaredField("DEBUG")
+			valueF.setAccessible(true)
+			valueF.getBoolean(null)
+		} catch {case e: Throwable => println(e); false}
+	}
+	private[this] def checkRequiredManifestEntries(): Unit = {
+		val warn = new StringBuilder()
+		// check KeepAliveService
+		var clas: Class[_] = classOf[KeepAliveService]
+		var intent = new Intent(this, clas)
+		var resolvers: java.util.List[_] = getPackageManager.queryIntentServices(intent, 0)
+		if (resolvers == null || resolvers.size() == 0) warn ++= s"""\n<service android:name="${clas.getName}"/>"""
+		// check PermissionsCheckActivity
+		clas = classOf[PermissionsCheckActivity]
+		intent = new Intent(this, clas)
+		resolvers = getPackageManager.queryIntentActivities(intent, 0)
+		if (resolvers == null || resolvers.size() == 0) warn ++= s"""\n<activity android:name="just4fun.android.core.app.PermissionsCheckActivity" android:theme="@android:style/Theme.NoDisplay" android:excludeFromRecents="true"/>"""
+		if (warn.nonEmpty) throw new Exception(s"The following components are required by ${classOf[LibRoot].getPackage.getName} library and should be declared in your AndroidManifest.xml:$warn")
+	}
 }
 
+
+
+/**/
+class PermissionsCheckActivity extends Activity {
+	override def onCreate(savedInstanceState: Bundle) {
+		super.onCreate(savedInstanceState)
+		logD(s"NO ACTIVITY created >>>>>>>>>>>>>>>>>>>>>")
+		val perms = android.Manifest.permission.BODY_SENSORS ::
+		  android.Manifest.permission.CALL_PHONE ::
+		  android.Manifest.permission.SEND_SMS ::
+		  android.Manifest.permission.INTERNET ::
+		  Nil
+		if (Build.VERSION.SDK_INT >= 23) requestPermissions(perms.toArray, 1)
+	}
+	override def onRequestPermissionsResult(requestCode: Int, permissions: Array[String], grantResults: Array[Int]): Unit = {
+		logD(s"$requestCode: PERMISSIONS>> ${permissions.zip(grantResults)}")
+		finish()
+		//		super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+	}
+	override def onDestroy(): Unit = {
+		super.onDestroy()
+		logD(s"NO ACTIVITY destroyed <<<<<<<<<<<<<<<<<<<<<")
+	}
+}
 

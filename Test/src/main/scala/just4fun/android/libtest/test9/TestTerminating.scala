@@ -69,7 +69,7 @@ class Module_1 extends Module
 with ThreadPoolContextHolder
 with TestModule {
 	var firstTime = true
-	override protected[this] val serveStandbyLatency: Int = 2000
+	override protected[this] val standbyLatency: Int = 2000
 	startAfter = 1000
 	stopAfter = 5000
 	standbyMode = true

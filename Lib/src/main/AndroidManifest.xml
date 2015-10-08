@@ -3,7 +3,6 @@
       package="just4fun.android.core"
       android:versionCode="1"
       android:versionName="1.01">
-    <uses-sdk android:minSdkVersion="14" android:targetSdkVersion="22"/>
-    <application android:label="@string/app_name" android:icon="@drawable/ic_launcher">
-    </application>
+    <uses-sdk android:minSdkVersion="14" android:targetSdkVersion="23"/>
+    <application></application>
 </manifest>

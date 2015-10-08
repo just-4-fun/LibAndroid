@@ -1,14 +1,15 @@
-package just4fun.android.core.inet
+package just4fun.android.core.net
 
 import just4fun.android.core.app.{ModuleRequest, Module}
-import just4fun.android.core.async.OwnThreadContextHolder
-import just4fun.android.core.inet.InetModule.{Method, ContentType, HttpCode}
+import just4fun.android.core.async.{MainThreadContext, FutureX, OwnThreadContextHolder}
+import InetModule.{Method, ContentType, HttpCode}
+import just4fun.android.core.power.PowerModule
 import just4fun.utils.TryNClose
 import just4fun.utils.Utils._
 import just4fun.utils.logger.Logger._
 
+import scala.collection.mutable
 import scala.collection.mutable.Map
-import org.apache.http.NoHttpResponseException
 import java.io._
 import java.net.{HttpURLConnection, NoRouteToHostException, SocketTimeoutException, URL, URLConnection, URLEncoder, UnknownHostException}
 import javax.net.ssl.SSLException
@@ -30,14 +31,14 @@ object InetModule {
 		val CANCELED = 2
 	}
 
-	private[inet] def streamToString(in: InputStream): Try[String] = {
+	private[net] def streamToString(in: InputStream): Try[String] = {
 		TryNClose(new BufferedReader(new InputStreamReader(in, UTF8))) { bufRd =>
 			val res = new StringBuilder
 			Stream.continually(bufRd.readLine()).takeWhile(_ != null).foreach(res.append)
 			res.toString()
 		}
 	}
-	private[inet] def streamToBytes(in: InputStream): Try[Array[Byte]] = {
+	private[net] def streamToBytes(in: InputStream): Try[Array[Byte]] = {
 		TryNClose(new BufferedInputStream(in)) { bufIn =>
 			TryNClose(new ByteArrayOutputStream(1024)) { out =>
 				val buf: Array[Byte] = new Array[Byte](1024)
@@ -54,12 +55,61 @@ object InetModule {
 
 /* INET MODULE */
 class InetModule extends Module with OwnThreadContextHolder {
+	private[this]
+	implicit val ord = new Ordering[InetRequest[_]] {
+		override def compare(x: InetRequest[_], y: InetRequest[_]): Int = if (x.expire < y.expire) -1 else if (x.expire == y.expire) 0 else 1
+	}
+	val queue = mutable.SortedSet[InetRequest[_]]()
+	// TODO dependson connectivity type
+	private[this] val tailTime = 5000
+	private[this] val ACTING = Long.MaxValue
+	private[this] var lastActed = 0L
+	// TODO do not wait if on AC power
+	private[this] val power = unchecked_bind[PowerModule]
+	private[this] var charging = false
+	private[this] val CHECK_CODE = "INET_CHECK_CODE_"
 	standbyMode = true
 	//todo persist and track requests via db. No bindSelf / restorable
 	// todo event onUnbound instead onBeforeDeact...
 
-	override protected[this] def onRequestComplete(): Unit = {
-
+	/* Lifecycle callbacks */
+	override protected[this] def onActivatingStart(initial: Boolean): Unit = {
+		// TODO reg NetState receiver
+	}
+	override protected[this] def onDeactivatingFinish(terminal: Boolean): Unit = {
+		// TODO unreg NetState receiver
+		MainThreadContext.cancel(CHECK_CODE)
+	}
+	override protected[this] def onFailure(err: Throwable): Option[Throwable] = {
+		super.onFailure(err)
+	}
+	
+	/* Battery power saving */
+	override protected[this] def onRequestComplete(fx: ModuleRequest[_]): Unit = synchronized {
+		lastActed = now
+		checkQueue()
+	}
+	def addRequest(rq: InetRequest[_]): Unit = synchronized {
+		queue += rq
+		checkQueue()
+	}
+	def checkQueue(): Unit = synchronized {
+		if (queue.nonEmpty && lastActed != ACTING && !isRequestsServingPaused) {
+			val nowMs = now
+			val rq = queue.head
+			if (charging || rq.expire <= (nowMs + 1000) || (nowMs - lastActed < tailTime)) {
+				lastActed = ACTING
+				queue.remove(rq)
+				serveRequest(rq)
+			}
+			else FutureX.post(rq.expire - nowMs, CHECK_CODE)(checkQueue())(MainThreadContext)
+		}
+	}
+	override protected[this] def onBeforeTerminalDeactivating(): Unit = synchronized {
+		if (!isRequestsServingPaused) {
+			queue.foreach(serveRequest(_))
+			queue.clear()
+		}
 	}
 
 }
@@ -69,7 +119,8 @@ class InetModule extends Module with OwnThreadContextHolder {
 
 
 /* INET REQUEST */
-class InetRequest[T](implicit module: Module) extends ModuleRequest[T] {
+class InetRequest[T](val opts: InetOptions)(implicit module: Module) extends ModuleRequest[T] {
+	val expire = now + opts.expireDelay
 }
 
 
@@ -206,7 +257,7 @@ case class InetRequest[T](opts: InetOptions, consumer: InputStream => Try[T], ca
 
 
 /* OPTIONS */
-case class InetOptions(url: String, var method: Method.Value = Method.GET, var contentType: String = ContentType.Form, var connectTimeoutMs: Int = 20000, var readTimeoutMs: Int = 65000, var maxAttempts: Int = 1, var maxDuration: Long = 0L, var followRedirects: Boolean = true) {
+case class InetOptions(url: String, method: Method.Value = Method.GET, contentType: String = ContentType.Form, connectTimeoutMs: Int = 20000, readTimeoutMs: Int = 65000, maxAttempts: Int = 1, maxDuration: Long = 0L, followRedirects: Boolean = true, expireDelay: Long = 0L) {
 	// request params
 	var fullUrl: String = _
 	var headers: Map[String, Any] = _
@@ -266,11 +317,11 @@ case class InetOptions(url: String, var method: Method.Value = Method.GET, var c
 
 
 /* EXCEPTIONS */
-case class InetRequestException(code: Int) extends Exception
+class InetRequestException(code: Int) extends Exception
 
-object InetRequestCancelled extends InetRequestException(HttpCode.CANCELED)
+case class InetRequestCancelled() extends InetRequestException(HttpCode.CANCELED)
 
-object OfflineException extends InetRequestException(HttpCode.OFFLINE)
+case class OfflineException() extends InetRequestException(HttpCode.OFFLINE)
 
 
 

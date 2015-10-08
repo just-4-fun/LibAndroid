@@ -67,15 +67,14 @@ with ModuleServabilityListener{
 class Module_1 extends TestModule {
 	startAfter = 1000
 	stopAfter = 1000
-	override protected[this] val serveInParallel: Boolean = true
 	standbyMode = true
 
 	def execSomething(): Unit = serveAsync{
 		logD(s"${moduleID}:  execSomething")
 	}
 	def togglePauseTests(): Unit = {
-		if (isServingRequestsPaused) resumeServingRequests() else pauseServingRequests()
-		logD(s"${moduleID}: serving paused?  $isServingRequestsPaused;  queueSize= ${requests.length};  states: [${requests.map(_.state).mkString(", ")}]  ")
+		if (isRequestsServingPaused) resumeRequestsServing() else pauseRequestsServing()
+		logD(s"${moduleID}: serving paused?  $isRequestsServingPaused;  queueSize= ${requests.length};  states: [${requests.map(_.state).mkString(", ")}]  ")
 	}
 	def setAbsolutelyFailed(err: Throwable): Unit = {
 		setFailed(err)

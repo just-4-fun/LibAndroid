@@ -2,7 +2,10 @@ package just4fun.android.core.app
 
 import java.lang
 
+import android.content.pm.PackageManager
+
 import scala.collection.mutable
+import scala.concurrent.{Promise, Future}
 import scala.language.existentials
 
 import android.app.Activity
@@ -11,11 +14,12 @@ import android.os.Bundle
 import just4fun.android.core.async.{MainThreadContext, FutureX, ThreadPoolContext}
 import just4fun.android.core.vars.Prefs
 import just4fun.core.schemify.PropType
-import just4fun.utils.logger.Logger
+import just4fun.utils.Utils._
 import just4fun.utils.logger.Logger._
 import just4fun.utils.schema.ListType
+import android.os.Process
 
-private[app] class ModuleManager(app: Modules) {
+private[app] class ModuleManager(val app: Modules) /*extends PermissionSubsystem*/ {
 
 	private[this] val modules = mutable.ArrayBuffer[Module]()
 	/** Restoring [[Module]]s */
@@ -69,7 +73,11 @@ private[app] class ModuleManager(app: Modules) {
 			catch {case e: Throwable => if (err == null) constrEmpty(e) else throw err}
 		}
 		// EXEC
-		try if (restore) constrRestorable() else constrEmpty()
+		try {
+			val m = if (restore) constrRestorable() else constrEmpty()
+//			requirePermissions(m.permissions, m)
+			m
+		}
 		catch {
 			case e: StackOverflowError =>
 				val ex = new CyclicBindingException(cls, s"${cls.getName}, ${if (binding != null) binding.getClass.getName else ""}")
@@ -109,6 +117,7 @@ private[app] class ModuleManager(app: Modules) {
 	}
 	private def onExit(): Unit = {
 		try app.onExit() catch loggedE
+//		cleanupPermissionSubsystem()
 		PropType.onAppExit()
 		ThreadPoolContext.quit()
 		KeepAliveService.stop()
@@ -117,7 +126,7 @@ private[app] class ModuleManager(app: Modules) {
 
 	/* MISC EVENTS */
 	def onConfigurationChanged(newConfig: Configuration): Unit = {
-		modules.foreach(s => try s.onConfigurationChanged(newConfig) catch loggedE)
+		modules.foreach(_.configurationChanged(newConfig))
 	}
 	def onTrimMemory(level: Int): Unit = {
 		modules.foreach(_.trimMemory(level))
@@ -171,11 +180,73 @@ private[app] class ModuleManager(app: Modules) {
 			}
 		}
 	}
-
 }
 
 
 
+
+/* PERMISSIONS */
+//private[app] trait PermissionSubsystem extends ActivityCompat.OnRequestPermissionsResultCallback {
+//	mgr: ModuleManager =>
+//	private[this] var requests: List[Request] = null
+//	private[this] var requestId = 1
+//	private[this] var requesting = false
+//
+//
+//	def hasPermission(pm: String): Boolean = {
+//		// todo class of context
+//		app.checkPermission(pm, Process.myPid(), Process.myUid()) == PackageManager.PERMISSION_GRANTED
+//	}
+//	def requestPermissions(perms: Seq[String])(implicit m: Module): Future[Seq[Boolean]] = {
+//		val promise = Promise[Seq[Boolean]]()
+//		if (perms.forall(hasPermission)) promise.success(List(true).padTo(perms.length, true)) else addRequest(perms, promise)
+//		promise.future
+//	}
+//	def requirePermissions(perms: Seq[String], m: Module): Unit = if (nonEmpty(perms)) {
+//		val leftPerms = perms.filterNot(hasPermission)
+//		if (leftPerms.nonEmpty) {
+//			m.pauseActivating()
+//			addRequest(leftPerms, m)
+//		}
+//	}
+//	private def addRequest(perms: Seq[String], moduleOrPromise: AnyRef): Unit = synchronized {
+//		val r = Request(perms)
+//		r.moduleOrPromise = moduleOrPromise
+//		requests = if (requests == null) r :: Nil else r :: requests
+//		if (!requesting) FutureX.post(1000, this)(request())(MainThreadContext)
+//	}
+//	private def request(): Unit = synchronized {
+//		if (Modules.aManager.uiContext.isEmpty) {
+//			requests.foreach(_.complete())
+//			requests = null
+//		}
+//		else {
+//			requesting = true
+//			val perms = requests.flatMap { r => r.id = requestId; r.permissions }.distinct.toArray
+//			ActivityCompat.requestPermissions(Modules.aManager.uiContext.get, perms, requestId)
+//			requestId += 1
+//		}
+//	}
+//	override def onRequestPermissionsResult(id: Int, perms: Array[String], results: Array[Int]): Unit = synchronized {
+//		val (curr, next) = requests.partition(_.id == id)
+//		requests = if (next.isEmpty) null else next
+//		curr.foreach(_.complete())
+//		requesting = false
+//		if (next.nonEmpty) request()
+//	}
+//	def cleanupPermissionSubsystem(): Unit = {
+//		FutureX.cancel(this)(MainThreadContext)
+//	}
+//
+//	private case class Request(permissions: Seq[String]) {
+//		var id = 0
+//		var moduleOrPromise: AnyRef = null
+//		def complete(): Unit = moduleOrPromise match {
+//			case module: Module => module.resumeActivatingProgress()
+//			case promise: Promise[Seq[Boolean]] @unchecked => promise.success(permissions.map(hasPermission))
+//		}
+//	}
+//}
 
 
 
@@ -187,7 +258,7 @@ abstract class ModuleException(message: String) extends Exception(message) {
 	def this() = this("")
 }
 
-class ModuleBindingException(val moduleClass: Class[_], cause: Throwable = null, message: String = "") extends ModuleException(s"Failed binding ${moduleClass.getName}. $message") {
+class ModuleBindingException(val moduleClass: Class[_], cause: Throwable = null, message: String = "") extends ModuleException(s"Failed binding module ${moduleClass.getName}. $message") {
 	initCause(cause)
 }
 
@@ -196,6 +267,8 @@ class DeadModuleBindingException(moduleClass: Class[_]) extends ModuleBindingExc
 
 class CyclicBindingException(moduleClass: Class[_], trace: String) extends ModuleBindingException(moduleClass, null, s"Cyclic usage detected in chain [$trace]")
 
-object ModuleServiceException extends ModuleException("Module cannot serve request because it's not yet activated.")
+case class ModuleServiceException() extends ModuleException("Module cannot serve request because it's not yet activated.")
 
-case class BoundParentException(parent: Module) extends ModuleException(s"Sync-bound parent ${parent.moduleID} failed with  ${parent.failure.foreach(_.getMessage)}")
+case class BoundParentException(parent: Module) extends ModuleException(s"Sync-bound parent module ${parent.moduleID} failed with  ${parent.failure.foreach(_.getMessage)}")
+
+case class ModuleHasNoPermissionException(permission: String, moduleClass: Class[_]) extends ModuleException(s"Module ${moduleClass.getName} has no permission $permission")
