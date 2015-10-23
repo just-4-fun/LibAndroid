@@ -3,7 +3,7 @@ package just4fun.android.core.app
 import java.lang.Thread.UncaughtExceptionHandler
 
 import android.content.pm.PackageManager
-import android.os.{Build, Bundle}
+import android.os.{Process, Build, Bundle}
 import just4fun.android.core.vars.Prefs
 import just4fun.utils.Utils._
 import just4fun.utils.logger.{Logger, LoggerConfig}
@@ -41,14 +41,22 @@ NOTE: app ui stopped > low memo > keepAlive killed wo callbacks > after 4 minute
 /* APP  */
 
 object Modules {
+	private val KEY_LAUNCHED = "app_launched_"
 	private var i: Modules = null
 	private[app] var mManager: ModuleManager = null
 	private[app] var aManager: ActivityManager = null
-	private var exitCode: () => Unit = null
+	private var firstRun = false
+	private[app] lazy val libResources = i.libResources
 
 	/* PUBLIC */
+	val processID = Process.myPid()
+	val processUID  = Process.myUid()
 	lazy val context: Context = i
 	def uiContext = aManager.uiContext
+	def uiVisible = aManager.uiVisible
+	def uiAlive = aManager.uiAlive
+	def isFirstRun = firstRun
+
 
 	def use[M <: Module : Manifest](implicit context: Context): M = macro Macros.use[M]
 	def unchecked_use[M <: Module : Manifest](implicit context: Context): M = {
@@ -78,8 +86,13 @@ object Modules {
 	}
 
 	/* INTERNAL */
-	private def init(app: Modules): Unit = {
+	private def onCreate(app: Modules): Unit = {
 		i = app
+		//
+		implicit val cache = Prefs.syscache
+		firstRun = !Prefs.contains(KEY_LAUNCHED)
+		if (firstRun) Prefs(KEY_LAUNCHED) = 1
+		//
 		mManager = new ModuleManager(i)
 		aManager = new ActivityManager(i, mManager)
 		mManager.checkRestore()
@@ -94,28 +107,32 @@ object Modules {
 /* ANDROID APP  */
 
 trait Modules extends Application {
+	/** Override to adapt library resources to your app. */
+	val libResources: LibResources = new LibResources
 	/** Value-class replaces Key-class when instantiating [[Module]]. Can be added by overriding. */
 	protected[app] val preferedModuleClasses: mutable.HashMap[Class[_], Class[_]] = null
 
 	LoggerConfig.debug(true).logDef(Log.println(_, _, _))
 
 
+	protected[this] def onExit(): Unit = {}
+
 	override def onCreate(): Unit = {
 		super.onCreate()
 		LoggerConfig.debug(isDebug)
 		  .addPackageRoot(classOf[LibRoot].getPackage.getName)
 		  .addPackageRoot(getPackageName)
-		logV(s"<<<<<<<<<<<<<<<<<<<<                    APP   CONSTRUCTED                    >>>>>>>>>>>>>>>>>>>>")
+		logV(s"<<<<<<<<<<<<<<<<<<<<                    APP   CREATED                    >>>>>>>>>>>>>>>>>>>>")
 		checkRequiredManifestEntries()
-		Modules.init(this)
+		Modules.onCreate(this)
 	}
 
 	override def onTrimMemory(level: Int): Unit = Modules.mManager.onTrimMemory(level)
 
 	override def onConfigurationChanged(newConfig: Configuration): Unit = Modules.mManager.onConfigurationChanged(newConfig)
 
-	protected[app] def onExit(): Unit = {}
 
+	private[app] def exit(): Unit = onExit()
 
 	private[this] def isDebug: Boolean = {
 		try {
@@ -128,41 +145,17 @@ trait Modules extends Application {
 	private[this] def checkRequiredManifestEntries(): Unit = {
 		val warn = new StringBuilder()
 		// check KeepAliveService
-		var clas: Class[_] = classOf[KeepAliveService]
-		var intent = new Intent(this, clas)
-		var resolvers: java.util.List[_] = getPackageManager.queryIntentServices(intent, 0)
+		val clas: Class[_] = classOf[KeepAliveService]
+		val intent = new Intent(this, clas)
+		val resolvers: java.util.List[_] = getPackageManager.queryIntentServices(intent, 0)
 		if (resolvers == null || resolvers.size() == 0) warn ++= s"""\n<service android:name="${clas.getName}"/>"""
-		// check PermissionsCheckActivity
-		clas = classOf[PermissionsCheckActivity]
-		intent = new Intent(this, clas)
-		resolvers = getPackageManager.queryIntentActivities(intent, 0)
-		if (resolvers == null || resolvers.size() == 0) warn ++= s"""\n<activity android:name="just4fun.android.core.app.PermissionsCheckActivity" android:theme="@android:style/Theme.NoDisplay" android:excludeFromRecents="true"/>"""
 		if (warn.nonEmpty) throw new Exception(s"The following components are required by ${classOf[LibRoot].getPackage.getName} library and should be declared in your AndroidManifest.xml:$warn")
 	}
 }
 
 
 
-/**/
-class PermissionsCheckActivity extends Activity {
-	override def onCreate(savedInstanceState: Bundle) {
-		super.onCreate(savedInstanceState)
-		logD(s"NO ACTIVITY created >>>>>>>>>>>>>>>>>>>>>")
-		val perms = android.Manifest.permission.BODY_SENSORS ::
-		  android.Manifest.permission.CALL_PHONE ::
-		  android.Manifest.permission.SEND_SMS ::
-		  android.Manifest.permission.INTERNET ::
-		  Nil
-		if (Build.VERSION.SDK_INT >= 23) requestPermissions(perms.toArray, 1)
-	}
-	override def onRequestPermissionsResult(requestCode: Int, permissions: Array[String], grantResults: Array[Int]): Unit = {
-		logD(s"$requestCode: PERMISSIONS>> ${permissions.zip(grantResults)}")
-		finish()
-		//		super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-	}
-	override def onDestroy(): Unit = {
-		super.onDestroy()
-		logD(s"NO ACTIVITY destroyed <<<<<<<<<<<<<<<<<<<<<")
-	}
-}
+
+
+
 

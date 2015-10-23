@@ -9,11 +9,13 @@ import just4fun.utils.logger.Logger._
 
 /* PREFS */
 object Prefs {
-	private lazy val cache = Modules.context.getSharedPreferences("vars_cache", 0)
+	private lazy val cache = Modules.context.getSharedPreferences("default_cache", 0)
+	private[core] lazy val syscache = Modules.context.getSharedPreferences("system_cache", 0)
 
-	def apply[T](name: String)(implicit typ: PropType[T], prefs: SharedPreferences = null): T = {
+	def apply[T](name: String, default: T = null.asInstanceOf[T])(implicit typ: PropType[T], prefs: SharedPreferences = null): T = {
 		val p = if (prefs == null) cache else prefs
-		typ.eval(typ.read(p, name)(PrefReader))
+		val res = typ.eval(typ.read(p, name)(PrefReader))
+		if (res != null) res else default
 	}
 	def update[T](name: String, value: T)(implicit typ: PropType[T], prefs: SharedPreferences = null): Unit = if (name != null) {
 		val p = if (prefs == null) cache else prefs

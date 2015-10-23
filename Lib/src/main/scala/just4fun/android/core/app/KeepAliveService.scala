@@ -28,13 +28,13 @@ private[app] object KeepAliveService {
 	}
 	def onUiVisible(visible: Boolean): Unit = if (visible) stop() else start()
 	
-	def start(info: Bundle = null): Unit = if (daemon == null && !Modules.mManager.isEmpty) {
+	def start(info: Bundle = null): Unit = if (daemon == null && !Modules.mManager.isModulesEmpty) {
 		val intent = new Intent(Modules.context, classOf[KeepAliveService])
 		if (info != null) intent.putExtra("info", info)
 		Modules.context.startService(intent)
 		logV("start KEEP ALIVE")
 	}
-	def stop(): Unit = if (daemon != null && (!keepAliveForeground || Modules.mManager.isEmpty)) {
+	def stop(): Unit = if (daemon != null && (!keepAliveForeground || Modules.mManager.isModulesEmpty)) {
 		if (keepAliveForeground) stopForeground(true)
 		daemon.stopSelf()
 		daemon = null
@@ -64,7 +64,7 @@ private[app] object KeepAliveService {
 				}
 			}
 		}
-		val cancel = Modules.mManager.isEmpty || (Modules.aManager.uiVisible && !keepAliveForeground)
+		val cancel = Modules.mManager.isModulesEmpty || (Modules.aManager.uiVisible && !keepAliveForeground)
 		logV(s"onStart:   cancel? $cancel")
 		if (cancel) stop()
 

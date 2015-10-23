@@ -34,7 +34,8 @@ private[app] class ActivityManager(app: Modules, mMgr: ModuleManager) extends Ac
 	
 	def uiContext: Option[Activity] = Option(activity)
 	def uiVisible = state == RESUMED
-	
+	def uiAlive = state >= CREATED && state < DESTROYED && !activity.isFinishing && (!reconfiguring || state < PAUSED)
+
 	def onActivityConstructed(a: Activity) = {
 		if (activity == null) uiEvent = UiEvent.CREATE
 		activity = a

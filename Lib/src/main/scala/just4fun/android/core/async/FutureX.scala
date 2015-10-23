@@ -81,7 +81,13 @@ sealed class FutureXBase[T] extends Runnable {
 	}
 	def cancel(err: Throwable = null): Unit = synchronized {
 		if (_state < DONE) {
-			if (_state == WAIT && _context != null) _context.cancel(this)
+			if (_state == WAIT && _context != null) {
+				_context.cancel(this)
+				_task match {
+					case t: TaskCancellable => t.cancel()
+					case _ =>
+				}
+			}
 			finishExecute(Failure(if (err == null) new CancellationException else err))
 		}
 	}
@@ -145,6 +151,21 @@ class FutureX[T] extends FutureXBase[T] {
 	def task(code: => Future[T])(implicit c: FutureContext, d: DummyImplicit, d2: DummyImplicit2 = null): this.type = {
 		_context = c
 		_task = new FutureTaskF[T](code)
+		this
+	}
+	def taskCancellable(code: (() => Boolean) => T)(implicit c: FutureContext): this.type = {
+		_context = c
+		_task = new FutureTaskCancellableSync[T](code)
+		this
+	}
+	def taskCancellable(code: (() => Boolean) => FutureX[T])(implicit c: FutureContext, d: DummyImplicit): this.type = {
+		_context = c
+		_task = new FutureTaskCancellableFX[T](code)
+		this
+	}
+	def taskCancellable(code: (() => Boolean) => Future[T])(implicit c: FutureContext, d: DummyImplicit, d2: DummyImplicit2 = null): this.type = {
+		_context = c
+		_task = new FutureTaskCancellableF[T](code)
 		this
 	}
 	def thanTask[V](code: T => V)(implicit c: FutureContext): FutureX[V] = {
@@ -261,6 +282,23 @@ private[async] class FutureTaskFX[T](code: => FutureX[T]) extends FutureTaskFXBa
 private[async] class FutureTaskF[T](code: => Future[T]) extends FutureTaskFBase[T] {
 	def onExecute(): Future[T] = code
 }
+
+
+
+private[async] trait TaskCancellable {
+	var cancelled = false
+	def cancel() = cancelled = true
+}
+private[async] class FutureTaskCancellableSync[T](code: (() => Boolean) => T) extends FutureTaskSyncBase[T] with TaskCancellable {
+	def onExecute(): T = code(() => cancelled)
+}
+private[async] class FutureTaskCancellableFX[T](code: (() => Boolean) => FutureX[T]) extends FutureTaskFXBase[T] with TaskCancellable {
+	def onExecute(): FutureX[T] = code(() => cancelled)
+}
+private[async] class FutureTaskCancellableF[T](code: (() => Boolean) => Future[T]) extends FutureTaskFBase[T] with TaskCancellable {
+	def onExecute(): Future[T] = code(() => cancelled)
+}
+
 
 
 

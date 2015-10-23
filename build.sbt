@@ -18,34 +18,26 @@ lazy val lib = project.in(file("Lib"))
    .settings(
 	  name := "Lib"
 	  , androidBuild
-	  , libraryProject in Android := true
-//	  ,androidBuildAar
-	  , transitiveAndroidLibs in Android := false
-//	  	, exportJars := true
+	  , libraryProject := true
+	  , transitiveAndroidLibs := false
 	  //	, mainClass in(Test, run) := Some("j4f.test.Test") // command > test:run
   )
   .settings(commonSettings: _*)
   .settings(paradiseSettings: _*)
   .settings(proguardSettings: _*)
   .settings(testSettings: _*)
-//  .settings(libDependencies: _*)
   .settings(dependencies: _*)
   .dependsOn(utils)
 
 lazy val test = project.in(file("Test"))
   .settings(
 	  name := "Test"
-	  //	  	  , androidBuild
-	  //	  , androidBuild(lib)
-	  //	  , localProjects in Android += LibraryProject(lib.base)
-	  //	 , exportJars := true
   )
   .settings(commonSettings: _*)
   .settings(paradiseSettings: _*)
   .settings(dependencies: _*)
   .dependsOn(utils)
   .androidBuildWith(lib)
-//  .dependsOn(lib)
 
 lazy val utils = RootProject(file("../../Utils"))
 
@@ -53,14 +45,14 @@ lazy val commonSettings = Seq(
 	scalaVersion := "2.11.7"
 	, minSdkVersion := "14"
 	, targetSdkVersion := "23"
-	, platformTarget in Android := "android-23"
-	, typedResources in Android := false
+	, platformTarget := "android-23"
+	, typedResources := false
 	, scalacOptions in Compile += "-feature"
 	, javacOptions ++= Seq("-source", "1.7", "-target", "1.7")
 )
 
 lazy val proguardSettings = Seq(
-	proguardOptions in Android ++= Seq("-keepattributes Signature"
+	proguardOptions ++= Seq("-keepattributes Signature"
 		, "-dontwarn scala.collection.**"
 	)
 )

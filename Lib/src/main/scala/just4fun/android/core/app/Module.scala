@@ -47,6 +47,7 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 	import StateCause._
 	implicit protected val thisModule: this.type = this
 	implicit protected val appContext = Modules.context
+	private[this] implicit val cache = Prefs.syscache
 	lazy val moduleID: String = getClass.getName
 	protected[this] val manager = Modules.mManager
 	private[app] lazy val asyncVars = mutable.ListBuffer[AsyncVar[_]]()
@@ -100,15 +101,15 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 	def inServingStateNonPaused = state == SERVING && !servePaused
 	def inStandbyState = state == STANDBY
 
-	def isActivatingProgressPaused: Boolean = activatingPaused
-	protected[this] final def pauseActivatingProgress(): Unit = if (inActivatingState || inStandbyState) {
-		activatingPaused = true
-		expectUpdate = false
-		ModuleTiker.cancelUpdates
+	def isActivatingProgressPaused: Boolean = !activatingNonPaused
+	protected[this] final def pauseActivatingProgressFor(future: FutureX[_]): Unit = {
+		future.onCompleteInMainThread(_ => resumeActivatingProgress())
+	}
+	protected[this] final def pauseActivatingProgress(): Unit = if (inStandbyState || inActivatingState) {
+		pauseActivation(true, 1)
 	}
 	final def resumeActivatingProgress(): Unit = {
-		activatingPaused = false
-		updateState(UNPAUSE)
+		pauseActivation(false, 1)
 	}
 
 	def standbyMode: Boolean = standby
@@ -117,17 +118,19 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 		updateState(if (yeap) STBY_OFF else STBY_ON)
 	}
 	protected[this] def setFailed(err: Throwable): Unit = {
-		logE(err, s"Module [$moduleID] is failed in state [${_state}] . ")
 		fail(err)
 		updateState(FAIL)
 	}
 	protected[this] def updateState(): Unit = {
 		updateState(USER)
 	}
-	protected[this] def reActivate(): Unit = {
-		reactivating = (standby, servePaused)
+	protected def reActivate(): Unit = {
+		reactivating = 1
+		if (standby) reactivating |= 2
+		if (servePaused) reactivating |= 4
 		standbyMode = true
 		pauseRequestsServing()
+		syncChildren.foreach(_.reActivate())
 	}
 
 	/* LIFECYCLE CALLBACKS to override */
@@ -215,13 +218,13 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 	}
 	
 	/* PERMISSIONS API */
-//	protected[this] def requiredPermissions: Seq[String] = null
-//	protected[this] def hasPermission(permission: String): Boolean = {
-//		manager.hasPermission(permission)
-//	}
-//	protected[this] def requestPermissions(permissions: String*): Future[Seq[Boolean]] = {
-//		manager.requestPermissions(permissions)
-//	}
+	protected[this] def permissions: Seq[PermissionExtra] = Nil
+	protected[this] def hasPermission(permission: String): Boolean = {
+		manager.hasPermission(permission)
+	}
+	protected[this] def requestPermission(permission: String): Future[Boolean] = {
+		manager.requestDynamicPermission(permission)
+	}
 
 	/* MISK USER API */
 
@@ -233,12 +236,9 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 	
 	/* INTERNAL API */
 	protected[this] def init(): Unit = {
-		if (!isAfterAbort) Prefs(moduleID) = true
+		if (!isAfterAbort) Prefs(moduleID) = 1
 	}
 	
-	private[app] def pauseActivating(): Unit = {
-		pauseActivatingProgress()
-	}
 	private[app] def trimMemory(level: Int): Unit = {
 		import ComponentCallbacks2._
 		if (level == TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_RUNNING_CRITICAL) asyncVars.foreach(_.releaseValue())
@@ -253,7 +253,7 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 	def isPredecessorOf(module: Module): Boolean = {
 		terminating && getClass == module.getClass && this.ne(module)
 	}
-//	private[app] def permissions: Seq[String] = requiredPermissions
+	private[app] def permissions_intr: Seq[PermissionExtra] = permissions
 
 }
 
@@ -394,11 +394,11 @@ protected[app] trait LifeCycleSubSystem {
 	private[app] var _state: StateValue = STANDBY
 	private[app] var _failure: Throwable = null
 	private[app] var standby = false
-	private[app] var activatingPaused = false
+	private[app] var activatingPaused = 0
 	private[app] var initialising = true
 	private[app] var terminating = false
 	private[app] var expectUpdate = false
-	private[app] var reactivating: (Boolean, Boolean) = null
+	private[app] var reactivating = 0
 	private[this] var progressStartTime = 0L
 
 	/* CHECK STATE INTERNAL API */
@@ -408,7 +408,7 @@ protected[app] trait LifeCycleSubSystem {
 			val needUpdate = cause match {
 				case null => true
 				case _ => _state match {
-					case ACTIVATING => !activatingPaused
+					case ACTIVATING => activatingNonPaused
 					case SERVING => deactivate_?
 					case DEACTIVATING => true
 					case STANDBY => destroy_? || activate_?
@@ -427,8 +427,8 @@ protected[app] trait LifeCycleSubSystem {
 	private[app] def destroy_? : Boolean = {
 		terminating || (initialising && bindings.isEmpty && !needServe)
 	}
-	private[this] def activate_? : Boolean =  !activatingPaused && {
-		needActivate && parentsLetActivate
+	private[this] def activate_? : Boolean = {
+		activatingNonPaused && needActivate && parentsLetActivate
 	}
 	private[this] def deactivate_? : Boolean = {
 		!needServe && (bindings.isEmpty || (standby && childrenLetDeactivate))
@@ -458,7 +458,7 @@ protected[app] trait LifeCycleSubSystem {
 		if (parent._state == STANDBY) parent.updateState(CH_ACTIV)
 		parent._state == SERVING
 	}
-	
+
 	/* CHANGE STATE INTERNAL API */
 	
 	private[app] def onUpdateState(): Boolean = lock synchronized {
@@ -470,7 +470,7 @@ protected[app] trait LifeCycleSubSystem {
 			case ACTIVATING => activated_>>
 			case SERVING => if (deactivate_? && checkTerminating) deactivate_>>
 			case DEACTIVATING => deactivated_>>
-			case STANDBY => if (destroy_?) destroy_>> else if (activate_?) activate_>>
+			case STANDBY => if (destroy_?) destroy_>> else if (activate_? && hasPermissions) activate_>>
 			case FAILED => if (nonBound) destroy_>>
 			case DESTROYED =>
 			case _ => logE(s"Module [$moduleID] is in unexpected state [${_state}].")
@@ -478,7 +478,7 @@ protected[app] trait LifeCycleSubSystem {
 		//
 		val changed = prev != _state
 		if (changed && _state != DESTROYED) updateState(null, 0)
-		else if (_state == DEACTIVATING || (_state == ACTIVATING && !activatingPaused)) updateState(null, calcBackoff())
+		else if (_state == DEACTIVATING || (_state == ACTIVATING && activatingNonPaused)) updateState(null, calcBackoff())
 		changed
 	}
 	private[this] def state_=(v: StateValue): Unit = {
@@ -492,7 +492,7 @@ protected[app] trait LifeCycleSubSystem {
 		progressStartTime = deviceNow()
 		activated_>>
 	}
-	private[this] def activated_? : Boolean = !activatingPaused && {
+	private[this] def activated_? : Boolean = activatingNonPaused && {
 		trying(onActivatingProgress(initialising, (progressDelay / 1000).toInt))
 	}
 	private[this] def activated_>> : Unit = if (activated_?) {
@@ -519,30 +519,24 @@ protected[app] trait LifeCycleSubSystem {
 		trying(onDeactivatingFinish(terminating))
 		quitFutureContext(true)
 		syncParents.foreach(_.updateState(CH_DEACT))
-		if (reactivating != null) {
-			standby = reactivating._1
-			servePaused = reactivating._2
-			reactivating = null
+		if (reactivating != 0) {
+			standby = (reactivating & 2) != 0
+			servePaused = (reactivating & 4) != 0
+			reactivating = 0
 		}
 	}
 	private[this] def trying[T](code: => T): T = try code catch {
-		case err: Throwable => handleError(err)
-			null.asInstanceOf[T]
-	}
-	private[app] def handleParentFailure(parent: Module): Unit = {
-		unbind(parent)
-		handleError(BoundParentException(parent))
+		case err: Throwable => handleError(err); null.asInstanceOf[T]
 	}
 	private[app] def handleError(err: Throwable): Unit = {
 		try onFailure(err) match {
-			case Some(e) => val prev = _state
-				if (err.ne(e) && e.getCause == null) e.initCause(err)
+			case Some(e) => if (err.ne(e) && e.getCause == null) e.initCause(err)
 				fail(e)
-				logE(e, s"Module [$moduleID] is failed in state [$prev]. ")
 			case None => logE(err, s"Module [$moduleID] in state [${_state}] error caught but ignored.")
 		} catch loggedE
 	}
 	private[app] def fail(err: Throwable): Unit = lock synchronized {
+		logE(err, s"Module [$moduleID] is failed in state [${_state}] . ")
 		if (_failure == null) {
 			state = FAILED
 			_failure = err
@@ -550,7 +544,7 @@ protected[app] trait LifeCycleSubSystem {
 			cancelRequests()
 			quitFutureContext()
 			manager.moduleUnbindFromAll
-			syncChildren.foreach(_.handleParentFailure(this))
+			syncChildren.foreach(_.fail(BoundParentException(this)))
 			fireEvent(new UnableToServeEvent)
 		}
 	}
@@ -583,6 +577,22 @@ protected[app] trait LifeCycleSubSystem {
 		val mult = if (_state == DEACTIVATING) 2 else 1
 		delay * mult
 	}
+	private[app] def hasPermissions: Boolean = !initialising || {
+		val failed = permissions.filter(p => p.typ == Permission.CRITICAL && !hasPermission(p.name))
+		if (failed.nonEmpty) fail(ModulePermissionException(failed.map(_.name).mkString(", "), getClass))
+		_state != FAILED
+	}
+	private[app] def waitPermissions(yep: Boolean): Unit = pauseActivation(yep, 2)
+	private[app] def activatingNonPaused: Boolean = activatingPaused == 0
+	private[app] def pauseActivation(yep: Boolean, reason: Int): Unit = yep match {
+		case true => activatingPaused |= reason
+			expectUpdate = false
+			ModuleTiker.cancelUpdates
+		case false if activatingPaused != 0 => activatingPaused &= ~reason
+			if (activatingPaused == 0) updateState(UNPAUSE)
+		case _ =>
+	}
+
 }
 
 

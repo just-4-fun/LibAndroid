@@ -2,32 +2,32 @@ package just4fun.android.core.app
 
 import java.lang
 
+import android.content.Intent
 import android.content.pm.PackageManager
 
 import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.{Promise, Future}
 import scala.language.existentials
 
 import android.app.Activity
 import android.content.res.Configuration
-import android.os.Bundle
+import android.os.{Build, Bundle, Process}
 import just4fun.android.core.async.{MainThreadContext, FutureX, ThreadPoolContext}
 import just4fun.android.core.vars.Prefs
 import just4fun.core.schemify.PropType
 import just4fun.utils.Utils._
 import just4fun.utils.logger.Logger._
-import just4fun.utils.schema.ListType
-import android.os.Process
+import just4fun.utils.schema.{ArrayBufferType, ListType}
 
-private[app] class ModuleManager(val app: Modules) /*extends PermissionSubsystem*/ {
-
-	private[this] val modules = mutable.ArrayBuffer[Module]()
-	/** Restoring [[Module]]s */
-	private[this] val restorables = mutable.Set[Class[_]]()
-	private[this] implicit val listType = new ListType[String]()
+private[app] class ModuleManager(val app: Modules) extends PermissionSubsystem with RestoreSubsysytem {
+	protected[this] implicit val cache = Prefs.syscache
+	protected[this] implicit val listType = new ListType[String]()
+	protected[this] val modules = mutable.ArrayBuffer[Module]()
+	private[this] var inited = false
 
 	/* MODULE  LIFECYCLE */
-	def isEmpty = modules.isEmpty
+	def isModulesEmpty = modules.isEmpty
 	def containsAliveModule(cls: Class[_]): Boolean = {
 		modules.exists(m => !m.isDestroying && m.getClass == cls)
 	}
@@ -73,9 +73,11 @@ private[app] class ModuleManager(val app: Modules) /*extends PermissionSubsystem
 			catch {case e: Throwable => if (err == null) constrEmpty(e) else throw err}
 		}
 		// EXEC
+		if (!inited) onInit()
 		try {
 			val m = if (restore) constrRestorable() else constrEmpty()
-//			requirePermissions(m.permissions, m)
+			val pms = m.permissions_intr
+			if (nonEmpty(pms)) requestStaticPermissions(pms, m)
 			m
 		}
 		catch {
@@ -90,14 +92,12 @@ private[app] class ModuleManager(val app: Modules) /*extends PermissionSubsystem
 		if (!modules.contains(m)) modules += m
 		if (first && Modules.aManager.uiContext.isEmpty) KeepAliveService.start()
 	}
-	def moduleHasPredecessor(implicit module: Module): Boolean = {
-		modules.exists(_.isPredecessorOf(module))
-	}
+
 	def moduleUnbind[M <: Module : Manifest](binding: Module): Unit = {
 		val cls: Class[M] = implicitly[Manifest[M]].runtimeClass.asInstanceOf[Class[M]]
 		moduleUnbind[M](cls, binding)
 	}
-	def moduleUnbind[M <: Module : Manifest](clas: Class[M], binding: Module): Unit = {
+	def moduleUnbind[M <: Module : Manifest](clas: Class[M], binding: Module): Unit = synchronized {
 		val cls = getPreferedModuleClass(clas)
 		modules.find(m => m.getClass == cls && !m.isDestroying).foreach { m =>
 			val self = binding == null || binding.getClass == cls
@@ -115,13 +115,25 @@ private[app] class ModuleManager(val app: Modules) /*extends PermissionSubsystem
 		updateRestorables(m.getClass, false)
 		if (modules.isEmpty) onExit()
 	}
+
+	def moduleHasPredecessor(implicit module: Module): Boolean = {
+		modules.exists(_.isPredecessorOf(module))
+	}
+
+
+	private def onInit(): Unit = {
+		inited = true
+		logV(s"<<<<<<<<<<<<<<<<<<<<                    MODULES   INITED                    >>>>>>>>>>>>>>>>>>>>")
+		initPermissionSubsystem()
+	}
 	private def onExit(): Unit = {
-		try app.onExit() catch loggedE
-//		cleanupPermissionSubsystem()
+		try app.exit() catch loggedE
+		exitPermissionSubsystem()
 		PropType.onAppExit()
 		ThreadPoolContext.quit()
 		KeepAliveService.stop()
-		logV(s"<<<<<<<<<<<<<<<<<<<<                    APP   EXITED                    >>>>>>>>>>>>>>>>>>>>")
+		inited = false
+		logV(s"<<<<<<<<<<<<<<<<<<<<                    MODULES   EXITED                    >>>>>>>>>>>>>>>>>>>>")
 	}
 
 	/* MISC EVENTS */
@@ -132,29 +144,6 @@ private[app] class ModuleManager(val app: Modules) /*extends PermissionSubsystem
 		modules.foreach(_.trimMemory(level))
 	}
 
-	/* RESTORING */
-	def checkRestore(): Unit = {
-		Prefs[List[String]]("_restorables_") match {
-			case null | Nil =>
-			case names => updateRestorables(null, false)
-				FutureX(restore(names))(MainThreadContext)
-		}
-	}
-	private def restore(modules: List[String]): Unit = modules.foreach { name =>
-		try {
-			val cls = Class.forName(name)
-			logV(s"BEFORE  RESTORED  ${cls.getSimpleName};  not yet created? ${!containsAliveModule(cls)}")
-			if (!containsAliveModule(cls)) moduleBind(cls.asInstanceOf[Class[Module]], null, false, true)
-			logV(s"AFTER RESTORED  ${cls.getSimpleName}")
-		}
-		catch loggedE
-	}
-	def updateRestorables(cls: Class[_], yeap: Boolean): Unit = {
-		if (cls == null || (yeap && restorables.add(cls)) || (!yeap && restorables.remove(cls))) {
-			Prefs("_restorables_") = restorables.map(_.getName).toList
-			logV(s"Restorables > ${Prefs[String]("_restorables_")}")
-		}
-	}
 
 	/* SUBSTITUTE CLASS */
 	def getPreferedModuleClass[S <: Module](clas: Class[S]): Class[S] = app.preferedModuleClasses match {
@@ -185,68 +174,37 @@ private[app] class ModuleManager(val app: Modules) /*extends PermissionSubsystem
 
 
 
-/* PERMISSIONS */
-//private[app] trait PermissionSubsystem extends ActivityCompat.OnRequestPermissionsResultCallback {
-//	mgr: ModuleManager =>
-//	private[this] var requests: List[Request] = null
-//	private[this] var requestId = 1
-//	private[this] var requesting = false
-//
-//
-//	def hasPermission(pm: String): Boolean = {
-//		// todo class of context
-//		app.checkPermission(pm, Process.myPid(), Process.myUid()) == PackageManager.PERMISSION_GRANTED
-//	}
-//	def requestPermissions(perms: Seq[String])(implicit m: Module): Future[Seq[Boolean]] = {
-//		val promise = Promise[Seq[Boolean]]()
-//		if (perms.forall(hasPermission)) promise.success(List(true).padTo(perms.length, true)) else addRequest(perms, promise)
-//		promise.future
-//	}
-//	def requirePermissions(perms: Seq[String], m: Module): Unit = if (nonEmpty(perms)) {
-//		val leftPerms = perms.filterNot(hasPermission)
-//		if (leftPerms.nonEmpty) {
-//			m.pauseActivating()
-//			addRequest(leftPerms, m)
-//		}
-//	}
-//	private def addRequest(perms: Seq[String], moduleOrPromise: AnyRef): Unit = synchronized {
-//		val r = Request(perms)
-//		r.moduleOrPromise = moduleOrPromise
-//		requests = if (requests == null) r :: Nil else r :: requests
-//		if (!requesting) FutureX.post(1000, this)(request())(MainThreadContext)
-//	}
-//	private def request(): Unit = synchronized {
-//		if (Modules.aManager.uiContext.isEmpty) {
-//			requests.foreach(_.complete())
-//			requests = null
-//		}
-//		else {
-//			requesting = true
-//			val perms = requests.flatMap { r => r.id = requestId; r.permissions }.distinct.toArray
-//			ActivityCompat.requestPermissions(Modules.aManager.uiContext.get, perms, requestId)
-//			requestId += 1
-//		}
-//	}
-//	override def onRequestPermissionsResult(id: Int, perms: Array[String], results: Array[Int]): Unit = synchronized {
-//		val (curr, next) = requests.partition(_.id == id)
-//		requests = if (next.isEmpty) null else next
-//		curr.foreach(_.complete())
-//		requesting = false
-//		if (next.nonEmpty) request()
-//	}
-//	def cleanupPermissionSubsystem(): Unit = {
-//		FutureX.cancel(this)(MainThreadContext)
-//	}
-//
-//	private case class Request(permissions: Seq[String]) {
-//		var id = 0
-//		var moduleOrPromise: AnyRef = null
-//		def complete(): Unit = moduleOrPromise match {
-//			case module: Module => module.resumeActivatingProgress()
-//			case promise: Promise[Seq[Boolean]] @unchecked => promise.success(permissions.map(hasPermission))
-//		}
-//	}
-//}
+
+
+/* RESTORE SUBSYSTEM */
+private[app] trait RestoreSubsysytem {
+	mgr: ModuleManager =>
+	private[this] val KEY_RESTOR = "restorables_"
+	private[this] val restorables = mutable.Set[Class[_]]()
+
+	def checkRestore(): Unit = {
+		Prefs[List[String]](KEY_RESTOR) match {
+			case null | Nil =>
+			case names => updateRestorables(null, false)
+				FutureX(restore(names))(MainThreadContext)
+		}
+	}
+	private def restore(modules: List[String]): Unit = modules.foreach { name =>
+		try {
+			val cls = Class.forName(name)
+			logV(s"BEFORE  RESTORED  ${cls.getSimpleName};  not yet created? ${!containsAliveModule(cls)}")
+			if (!containsAliveModule(cls)) moduleBind(cls.asInstanceOf[Class[Module]], null, false, true)
+			logV(s"AFTER RESTORED  ${cls.getSimpleName}")
+		}
+		catch loggedE
+	}
+	def updateRestorables(cls: Class[_], yeap: Boolean): Unit = {
+		if (cls == null || (yeap && restorables.add(cls)) || (!yeap && restorables.remove(cls))) {
+			Prefs(KEY_RESTOR) = restorables.map(_.getName).toList
+			logV(s"Restorables > ${Prefs[String](KEY_RESTOR)}")
+		}
+	}
+}
 
 
 
@@ -271,4 +229,6 @@ case class ModuleServiceException() extends ModuleException("Module cannot serve
 
 case class BoundParentException(parent: Module) extends ModuleException(s"Sync-bound parent module ${parent.moduleID} failed with  ${parent.failure.foreach(_.getMessage)}")
 
-case class ModuleHasNoPermissionException(permission: String, moduleClass: Class[_]) extends ModuleException(s"Module ${moduleClass.getName} has no permission $permission")
+case class ModulePermissionException(permission: String, moduleClass: Class[_]) extends ModuleException(s"Module ${moduleClass.getName} has no permission $permission")
+
+class NoUiForPermissionRequestException extends ModuleException("Permission request requires currently running Activity.")

@@ -7,7 +7,7 @@ import android.os.Bundle
 import just4fun.android.core.vars.TempVar
 
 
-/* ACTIVITY HOLDER */
+/* ACTIVITY HOLDER MODULE */
 trait ActivityModule extends Module {
 	private[this] var activityClass: Class[_] = null
 	private[this] var counter = 0
@@ -43,6 +43,10 @@ abstract class TwixModule[A <: TwixActivity[A, M] : Manifest, M <: TwixModule[A,
 	def ui: Option[A] = Modules.uiContext match {
 		case Some(a: A) => Some(a)
 		case _ => None
+	}
+	def withUi(code: A => Unit): Unit = Modules.uiContext match {
+		case Some(a: A) => code(a)
+		case _ =>
 	}
 }
 
