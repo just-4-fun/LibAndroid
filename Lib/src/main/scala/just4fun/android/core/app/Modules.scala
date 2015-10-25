@@ -84,6 +84,7 @@ object Modules {
 	def stopForeground(removeNotification: Boolean): Unit = {
 		KeepAliveService.stopForeground(removeNotification)
 	}
+	// todo def setStatusNotification
 
 	/* INTERNAL */
 	private def onCreate(app: Modules): Unit = {

@@ -6,7 +6,6 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.database.sqlite._
 import just4fun.android.core.app.Module
-import just4fun.android.core.app.Module.StateValue
 import just4fun.android.core.async.{FutureX, OwnThreadContextHolder}
 import just4fun.utils.logger.Logger
 import Logger._

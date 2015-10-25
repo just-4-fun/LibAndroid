@@ -111,5 +111,44 @@
     scala.concurrent.forkjoin.LinkedTransferQueue$PaddedAtomicReference tail;
     scala.concurrent.forkjoin.LinkedTransferQueue$PaddedAtomicReference cleanMe;
 }
--keepattributes Signature
--dontwarn scala.collection.**
+# view AndroidManifest.xml #generated:48
+-keep class android.test.InstrumentationTestRunner { <init>(...); }
+
+# view AndroidManifest.xml #generated:45
+-keep class just4fun.android.core.app.KeepAliveService { <init>(...); }
+
+# view AndroidManifest.xml #generated:16
+-keep class just4fun.android.libtest.App { <init>(...); }
+
+# view AndroidManifest.xml #generated:17
+-keep class just4fun.android.libtest.test1.TestActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:35
+-keep class just4fun.android.libtest.test10.TestActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:37
+-keep class just4fun.android.libtest.test11.TestActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:19
+-keep class just4fun.android.libtest.test2.TestActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:21
+-keep class just4fun.android.libtest.test3.TestActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:23
+-keep class just4fun.android.libtest.test4.TestActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:25
+-keep class just4fun.android.libtest.test5.TestActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:27
+-keep class just4fun.android.libtest.test6.TestActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:29
+-keep class just4fun.android.libtest.test7.TestActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:31
+-keep class just4fun.android.libtest.test8.TestActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:33
+-keep class just4fun.android.libtest.test9.TestActivity { <init>(...); }

@@ -19,13 +19,28 @@ class TestActivity extends TwixActivity[TestActivity, MainModule] {
 		setContentView(R.layout.main)
 		findViewById(R.id.button1).asInstanceOf[Button].setOnClickListener(new OnClickListener {
 			override def onClick(v: View): Unit = {
-//				module.startActivity()
+				module.m1.useCamera()
 			}
 		})
 	}
 }
 
 
+/**
+<uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
+    <uses-permission android:name="android.permission.CALL_PHONE"/>
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
+    <uses-permission android:name="android.permission.WRITE_CONTACTS"/>
+    <uses-permission android:name="android.permission.RECEIVE_SMS"/>
+    <uses-permission android:name="android.permission.SEND_SMS"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.READ_CALENDAR"/>
+    <uses-permission android:name="android.permission.FLASHLIGHT"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+
+ */
 object Permissions {
 	import android.Manifest.permission._
 	def apply() = WRITE_CONTACTS ::
@@ -42,11 +57,8 @@ class MainModule extends TwixModule[TestActivity, MainModule]
 with TestModule {
 	startAfter = 1000
 	stopAfter = 1000
-	bind[Module_1]
-	//	bindSync[Module_1]
-//	override protected[this] def requiredPermissions: Seq[String] = {
-//		perms
-//	}
+	val m1 = bind[Module_1]
+
 	override protected[this] def onActivatingStart(firstTime: Boolean): Unit = {
 		logD(s"PERMISSIONS: \n${Permissions().map(p => p+" ? "+hasPermission(p)).mkString("\n")}")
 		super.onActivatingStart(firstTime)
@@ -57,9 +69,10 @@ with TestModule {
 class Module_1 extends TestModule {
 	startAfter = 1000
 	stopAfter = 1000
-	/* PERMISSIONS API */
+
 	override protected[this] def permissions: Seq[PermissionExtra] = Permissions().map(PermissionCritical(_))
-	override protected[this] def onActivatingFinish(initial: Boolean): Unit = {
+
+	def useCamera(): Unit = serveAsync {
 		requestPermission(android.Manifest.permission.CAMERA).onComplete{
 			case Success(res) => logD(s"REQ PERMISSIONS: [${android.Manifest.permission.CAMERA}] granted ? $res")
 			case Failure(e) => logW(s"REQ PERMISSIONS: failed with: $e")

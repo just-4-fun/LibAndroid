@@ -225,7 +225,7 @@ class DeadModuleBindingException(moduleClass: Class[_]) extends ModuleBindingExc
 
 class CyclicBindingException(moduleClass: Class[_], trace: String) extends ModuleBindingException(moduleClass, null, s"Cyclic usage detected in chain [$trace]")
 
-case class ModuleServiceException() extends ModuleException("Module cannot serve request because it's not yet activated.")
+case class ModuleServiceException() extends ModuleException(s"Module cannot serve request because it's not in a valid state.")
 
 case class BoundParentException(parent: Module) extends ModuleException(s"Sync-bound parent module ${parent.moduleID} failed with  ${parent.failure.foreach(_.getMessage)}")
 

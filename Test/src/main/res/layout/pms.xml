@@ -7,7 +7,7 @@
     <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textAppearance="@android:style/TextAppearance.DeviceDefault.DialogWindowTitle"
+            android:textAppearance="@android:style/TextAppearance.DeviceDefault.Medium.Inverse"
             android:text="Permissions required"
             android:id="@+id/title"
             android:layout_margin="10dp"
@@ -16,7 +16,7 @@
     <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textAppearance="@android:style/TextAppearance.DeviceDefault.Small"
+            android:textAppearance="@android:style/TextAppearance.DeviceDefault.Small.Inverse"
             android:text="To operate properly app requires permissions"
             android:id="@+id/info"
             android:layout_marginLeft="14dp"
@@ -57,14 +57,17 @@
                 android:layout_height="wrap_content"
                 android:text="@android:string/cancel"
                 android:id="@+id/buttonNeg"
-                style="@android:style/DeviceDefault.ButtonBar.AlertDialog"/>
+                android:background="@null"
+                android:textAppearance="@android:style/TextAppearance.DeviceDefault.Medium.Inverse"/>
 
         <Button
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@android:string/ok"
                 android:id="@+id/buttonPos"
-                style="@android:style/DeviceDefault.ButtonBar.AlertDialog"/>
+                style="@android:style/DeviceDefault.ButtonBar.AlertDialog"
+                android:background="@null"
+                android:textAppearance="@android:style/TextAppearance.DeviceDefault.Medium.Inverse"/>
     </LinearLayout>
 
 </LinearLayout>

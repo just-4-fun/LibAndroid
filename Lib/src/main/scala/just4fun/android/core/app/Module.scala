@@ -18,23 +18,17 @@ import android.os.SystemClock.{uptimeMillis => deviceNow}
 import just4fun.android.core.async.{FutureContext, FutureContextHolder, FutureX}
 import just4fun.android.core.vars._
 
-// todo def setStatusNotification
 // todo def onNoRequests >> can re-enable suspending
 
-object Module {
-
-	object StateValue extends Enumeration {
-		type StateValue = Value
-		val ACTIVATING, SERVING, DEACTIVATING, STANDBY, FAILED, DESTROYED = Value
-	}
-	
-	private[app] object StateCause extends Enumeration {
-		type StateCause = Value
-		val USER, BIND_FIRST, BIND_LAST, REQ_FIRST, REQ_LAST, PREDEC, UNPAUSE, SERV, FAIL, STBY_OFF, STBY_ON, CH_ADD, CH_ACTIV, CH_DEL, CH_DEACT, PAR_ADD, PAR_DEL, PAR_ACTIV = Value
-	}
-	
+object ModuleState extends Enumeration {
+	type StateValue = Value
+	val ACTIVATING, SERVING, DEACTIVATING, STANDBY, FAILED, DESTROYED = Value
 }
 
+private[app] object StateChangeCause extends Enumeration {
+	type StateChangeCause = Value
+	val USER, BIND_FIRST, BIND_LAST, REQ_FIRST, REQ_LAST, PREDEC, UNPAUSE, SERV, FAIL, STBY_OFF, STBY_ON, CH_ADD, CH_ACTIV, CH_DEL, CH_DEACT, PAR_ADD, PAR_DEL, PAR_ACTIV = Value
+}
 
 
 
@@ -42,9 +36,8 @@ object Module {
 /* MODULE */
 
 trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubSystem with FutureContextHolder {
-	import Module._
-	import StateValue._
-	import StateCause._
+	import ModuleState._
+	import StateChangeCause._
 	implicit protected val thisModule: this.type = this
 	implicit protected val appContext = Modules.context
 	private[this] implicit val cache = Prefs.syscache
@@ -153,9 +146,9 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 	protected[this] def onConfigurationChanged(newConfig: Configuration): Unit = ()
 	protected[this] def onTrimMemory(level: Int): Unit = ()
 
-	
+
 	/* SERVICE USER API */
-	
+
 	final def isRequestsServingPaused: Boolean = servePaused
 	protected[this] final def pauseRequestsServing(): Unit = if (!servePaused) {
 		servePaused = true
@@ -190,7 +183,7 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 	protected[this] def serveAsync[T](code: => Future[T])(implicit futureContext: FutureContext, d: DummyImplicit, d2: DummyImplicit2 = null): FutureX[T] = {
 		requestAdd(new ModuleRequest[T].task(code))
 	}
-	
+
 	/* REQUEST QUEUE ACCESS */
 	protected[this] def serveRequest[T](request: ModuleRequest[T]): FutureX[T] = {
 		requestAdd(request)
@@ -201,7 +194,7 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 	}
 	protected[this] def onRequestComplete(fx: ModuleRequest[_]): Unit = {}
 
-	
+
 	/* EVENT API */
 	protected[this] def fireEvent[T <: ModuleEventListener : Manifest](e: ModuleEvent[T], module: Module = null): Unit = {
 		(if (module == null) bindings else List(module)).foreach {
@@ -216,7 +209,7 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 		restore = v
 		if (!v || bindings.contains(this)) manager.updateRestorables(getClass, v)
 	}
-	
+
 	/* PERMISSIONS API */
 	protected[this] def permissions: Seq[PermissionExtra] = Nil
 	protected[this] def hasPermission(permission: String): Boolean = {
@@ -226,19 +219,19 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 		manager.requestDynamicPermission(permission)
 	}
 
-	/* MISK USER API */
+	/* MISC USER API */
 
 	def systemService[T](contextServiceName: String): Option[T] = {
 		try Option(appContext.getSystemService(contextServiceName).asInstanceOf[T]) catch loggedE(None)
 	}
 	def dumpState(): String = s"state= ${state}; bindings= ${bindings.size};  syncChildren= ${syncChildren.size};  syncParents= ${syncParents.size}; requests= ${requests.size};  passiveMode= $standby;  extremCycle? ${initialising || terminating}"
-	
-	
+
+
 	/* INTERNAL API */
 	protected[this] def init(): Unit = {
 		if (!isAfterAbort) Prefs(moduleID) = 1
 	}
-	
+
 	private[app] def trimMemory(level: Int): Unit = {
 		import ComponentCallbacks2._
 		if (level == TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_RUNNING_CRITICAL) asyncVars.foreach(_.releaseValue())
@@ -249,7 +242,7 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 	}
 
 	private[core] def registerAsyncVar(v: AsyncVar[_]) = asyncVars += v
-	
+
 	def isPredecessorOf(module: Module): Boolean = {
 		terminating && getClass == module.getClass && this.ne(module)
 	}
@@ -267,17 +260,16 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 
 trait ServiceSubSystem {
 	this: Module =>
-	import Module._
-	import StateValue._
-	import StateCause._
+	import ModuleState._
+	import StateChangeCause._
 	// TODO QUEUE
 	protected[this] val requests = mutable.ListBuffer[ModuleRequest[_]]()
 	// TODO set 20000
 	protected[this] val standbyLatency = 10000
 	private[app] var servePaused = false
-	
+
 	/* INTERNAL API */
-	
+
 	private[app] def requestAdd[T](request: ModuleRequest[T]): FutureX[T] = {
 		if (isAlive) {
 			val first = requests.isEmpty
@@ -299,7 +291,7 @@ trait ServiceSubSystem {
 		}
 		else if (servePaused && standby) updateState(REQ_LAST)
 	}
-	
+
 	private[app] def pauseRequests(): Unit = {
 		requests.foreach(_.deactivate())
 	}
@@ -316,14 +308,14 @@ trait ServiceSubSystem {
 
 trait RelationsSubSystem {
 	this: Module =>
-	import Module.StateCause._
-	
+	import StateChangeCause._
+
 	protected[this] val bindings = mutable.Set[Module]()
 	protected[this] val syncChildren = mutable.Set[Module]()
 	protected[this] val syncParents = mutable.Set[Module]()
-	
+
 	/* INTERNAL API */
-	
+
 	private[app] def tryBind[M <: Module : Manifest](sync: Boolean = false): M = {
 		try manager.moduleBind[M](this, sync)
 		catch {
@@ -362,7 +354,7 @@ trait RelationsSubSystem {
 			updateState(PREDEC)
 		}
 	}
-	
+
 	private[this] def syncChildAdd(m: Module): Unit = if (syncChildren.add(m)) {
 		m.syncParentAdd(this)
 		updateState(CH_ADD)
@@ -388,9 +380,8 @@ trait RelationsSubSystem {
 
 protected[app] trait LifeCycleSubSystem {
 	this: Module =>
-	import Module._
-	import StateCause._
-	import StateValue._
+	import StateChangeCause._
+	import ModuleState._
 	private[app] var _state: StateValue = STANDBY
 	private[app] var _failure: Throwable = null
 	private[app] var standby = false
@@ -402,8 +393,8 @@ protected[app] trait LifeCycleSubSystem {
 	private[this] var progressStartTime = 0L
 
 	/* CHECK STATE INTERNAL API */
-	
-	private[app] def updateState(cause: StateCause, delay: Int = 0): Unit = lock synchronized {
+
+	private[app] def updateState(cause: StateChangeCause, delay: Int = 0): Unit = lock synchronized {
 		if (!expectUpdate) {
 			val needUpdate = cause match {
 				case null => true
