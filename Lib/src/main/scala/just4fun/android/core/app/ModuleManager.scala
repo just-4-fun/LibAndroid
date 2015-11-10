@@ -2,29 +2,26 @@ package just4fun.android.core.app
 
 import java.lang
 
-import android.content.Intent
-import android.content.pm.PackageManager
-
 import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
-import scala.concurrent.{Promise, Future}
 import scala.language.existentials
 
 import android.app.Activity
 import android.content.res.Configuration
-import android.os.{Build, Bundle, Process}
-import just4fun.android.core.async.{MainThreadContext, FutureX, ThreadPoolContext}
+import android.os.Bundle
+import just4fun.android.core.app.MemoryState._
+import just4fun.android.core.app.ModuleState.ModuleState
+import just4fun.android.core.async.{FutureX, MainThreadContext, ThreadPoolContext}
 import just4fun.android.core.vars.Prefs
 import just4fun.core.schemify.PropType
 import just4fun.utils.Utils._
 import just4fun.utils.logger.Logger._
-import just4fun.utils.schema.{ArrayBufferType, ListType}
+import just4fun.utils.schema.ListType
 
 private[app] class ModuleManager(val app: Modules) extends PermissionSubsystem with RestoreSubsysytem {
 	protected[this] implicit val cache = Prefs.syscache
 	protected[this] implicit val listType = new ListType[String]()
 	protected[this] val modules = mutable.ArrayBuffer[Module]()
-	private[this] var inited = false
+	protected[this] var inited = false
 
 	/* MODULE  LIFECYCLE */
 	def isModulesEmpty = modules.isEmpty
@@ -76,6 +73,7 @@ private[app] class ModuleManager(val app: Modules) extends PermissionSubsystem w
 		if (!inited) onInit()
 		try {
 			val m = if (restore) constrRestorable() else constrEmpty()
+			m.onConstructed()
 			val pms = m.permissions_intr
 			if (nonEmpty(pms)) requestStaticPermissions(pms, m)
 			m
@@ -93,18 +91,21 @@ private[app] class ModuleManager(val app: Modules) extends PermissionSubsystem w
 		if (first && Modules.aManager.uiContext.isEmpty) KeepAliveService.start()
 	}
 
-	def moduleUnbind[M <: Module : Manifest](binding: Module): Unit = {
+	def moduleUnbind[M <: Module : Manifest](binding: Module): Option[M] = {
 		val cls: Class[M] = implicitly[Manifest[M]].runtimeClass.asInstanceOf[Class[M]]
 		moduleUnbind[M](cls, binding)
 	}
-	def moduleUnbind[M <: Module : Manifest](clas: Class[M], binding: Module): Unit = synchronized {
+	def moduleUnbind[M <: Module : Manifest](clas: Class[M], binding: Module): Option[M] = synchronized {
 		val cls = getPreferedModuleClass(clas)
+		var mOpt: Option[M] = None
 		modules.find(m => m.getClass == cls && !m.isDestroying).foreach { m =>
 			val self = binding == null || binding.getClass == cls
 			if (self) updateRestorables(cls, false)
 			//			logD(s"UNBIND [${if (self) "self" else binding.moduleID}] from [${m.moduleID}]; ")
 			m.bindingRemove(binding)
+			mOpt = Some(m.asInstanceOf[M])
 		}
+		mOpt
 	}
 	def moduleUnbindFromAll(implicit m: Module): Unit = {
 		modules.foreach(_.bindingRemove(m))
@@ -113,7 +114,7 @@ private[app] class ModuleManager(val app: Modules) extends PermissionSubsystem w
 		modules -= m
 		modules.foreach(_.bindingRemove(m))
 		updateRestorables(m.getClass, false)
-		if (modules.isEmpty) onExit()
+		if (modules.isEmpty) FutureX(onExit())(MainThreadContext)
 	}
 
 	def moduleHasPredecessor(implicit module: Module): Boolean = {
@@ -121,18 +122,20 @@ private[app] class ModuleManager(val app: Modules) extends PermissionSubsystem w
 	}
 
 
+	private[app] def isInited: Boolean = inited
 	private def onInit(): Unit = {
 		inited = true
 		logV(s"<<<<<<<<<<<<<<<<<<<<                    MODULES   INITED                    >>>>>>>>>>>>>>>>>>>>")
 		initPermissionSubsystem()
+		app.modulesInit()
 	}
 	private def onExit(): Unit = {
-		try app.exit() catch loggedE
+		inited = false
+		app.modulesExit()
 		exitPermissionSubsystem()
-		PropType.onAppExit()
+		PropType.clean()
 		ThreadPoolContext.quit()
 		KeepAliveService.stop()
-		inited = false
 		logV(s"<<<<<<<<<<<<<<<<<<<<                    MODULES   EXITED                    >>>>>>>>>>>>>>>>>>>>")
 	}
 
@@ -140,13 +143,13 @@ private[app] class ModuleManager(val app: Modules) extends PermissionSubsystem w
 	def onConfigurationChanged(newConfig: Configuration): Unit = {
 		modules.foreach(_.configurationChanged(newConfig))
 	}
-	def onTrimMemory(level: Int): Unit = {
-		modules.foreach(_.trimMemory(level))
+	def trimMemory(state: MemoryState): Unit = {
+		modules.foreach(_.trimMemory(state))
 	}
 
 
 	/* SUBSTITUTE CLASS */
-	def getPreferedModuleClass[S <: Module](clas: Class[S]): Class[S] = app.preferedModuleClasses match {
+	def getPreferedModuleClass[S <: Module](clas: Class[S]): Class[S] = app.libResources.preferedModuleClasses match {
 		case null => clas
 		case map => map get clas match {
 			case None => clas
@@ -165,7 +168,7 @@ private[app] class ModuleManager(val app: Modules) extends PermissionSubsystem w
 			case Some(m) => m
 			case None => a match {
 				case a: TwixActivity[_, _] => moduleConstruct(a.moduleClass).setActivityClass(a.getClass)
-				case _ => new ActivityModule {}.setActivityClass(a.getClass) // new inst of new class
+				case _ => new ActivityModule {}.setActivityClass(a.getClass).onConstructed() // new inst of new class
 			}
 		}
 	}
@@ -216,19 +219,22 @@ abstract class ModuleException(message: String) extends Exception(message) {
 	def this() = this("")
 }
 
-class ModuleBindingException(val moduleClass: Class[_], cause: Throwable = null, message: String = "") extends ModuleException(s"Failed binding module ${moduleClass.getName}. $message") {
-	initCause(cause)
-}
-
-class DeadModuleBindingException(moduleClass: Class[_]) extends ModuleBindingException(moduleClass)
-
-
-class CyclicBindingException(moduleClass: Class[_], trace: String) extends ModuleBindingException(moduleClass, null, s"Cyclic usage detected in chain [$trace]")
-
-case class ModuleServiceException() extends ModuleException(s"Module cannot serve request because it's not in a valid state.")
+case class ModuleServiceException(state: ModuleState) extends ModuleException(s"Module cannot serve request in $state state.")
 
 case class BoundParentException(parent: Module) extends ModuleException(s"Sync-bound parent module ${parent.moduleID} failed with  ${parent.failure.foreach(_.getMessage)}")
 
 case class ModulePermissionException(permission: String, moduleClass: Class[_]) extends ModuleException(s"Module ${moduleClass.getName} has no permission $permission")
 
 class NoUiForPermissionRequestException extends ModuleException("Permission request requires currently running Activity.")
+
+
+/* BINDING EXCEPTIONS */
+class ModuleBindingException(val moduleClass: Class[_], cause: Throwable = null, message: String = "") extends ModuleException(s"Failed binding module ${moduleClass.getName}. $message") {
+	initCause(cause)
+}
+
+class DeadBindingException(moduleClass: Class[_]) extends ModuleBindingException(moduleClass)
+
+class CyclicBindingException(moduleClass: Class[_], trace: String) extends ModuleBindingException(moduleClass, null, s"Cyclic usage detected in chain [$trace]")
+
+

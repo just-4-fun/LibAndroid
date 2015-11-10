@@ -135,7 +135,7 @@ private[app] trait PermissionSubsystem {
 			else FutureX.post(id = "start_permit_h")(tryAdd())(MainThreadContext)
 		}
 	}
-	def onPermissionsRequested(id: Int): Boolean = {
+	def onPermissionsRequested(id: Int): Boolean = if (!inited) false else {
 		val cancelled = id == CANCEL_REQUEST
 		val askedLen = askedPermissions.length
 		// DEFs

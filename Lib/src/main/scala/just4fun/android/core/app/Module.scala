@@ -1,27 +1,22 @@
 package just4fun.android.core.app
 
-import java.lang
-import java.util.concurrent.CancellationException
-
-import android.app.Activity
-import just4fun.android.core.async.FutureX.DummyImplicit2
-import just4fun.utils.logger.Logger._
-
 import scala.collection.mutable
 import scala.concurrent.Future
 import scala.language.experimental.macros
 import scala.util.{Failure, Try}
 
-import android.content.{Context, ComponentCallbacks2}
 import android.content.res.Configuration
 import android.os.SystemClock.{uptimeMillis => deviceNow}
+import just4fun.android.core.app.MemoryState._
 import just4fun.android.core.async.{FutureContext, FutureContextHolder, FutureX}
+import just4fun.android.core.async.FutureX.DummyImplicit2
 import just4fun.android.core.vars._
+import just4fun.utils.logger.Logger._
 
 // todo def onNoRequests >> can re-enable suspending
 
 object ModuleState extends Enumeration {
-	type StateValue = Value
+	type ModuleState = Value
 	val ACTIVATING, SERVING, DEACTIVATING, STANDBY, FAILED, DESTROYED = Value
 }
 
@@ -42,11 +37,11 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 	implicit protected val appContext = Modules.context
 	private[this] implicit val cache = Prefs.syscache
 	lazy val moduleID: String = getClass.getName
+	val isAfterAbort: Boolean = Prefs.contains(moduleID)
 	protected[this] val manager = Modules.mManager
 	private[app] lazy val asyncVars = mutable.ListBuffer[AsyncVar[_]]()
 	private[app] var hasPredecessor = manager.moduleHasPredecessor
 	private[app] var lock = new Object
-	val isAfterAbort: Boolean = Prefs.contains(moduleID)
 	private[app] var restore = try {getClass.getDeclaredConstructor(classOf[Boolean]); true} catch {case _: Throwable => false}
 	//
 	init()
@@ -63,22 +58,22 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 	protected[this] def unchecked_bind[M <: Module : Manifest]: M = {
 		tryBind[M]()
 	}
-	protected[this] def unbindSelf: Unit = {
-		manager.moduleUnbind[this.type](this)
-	}
-	protected[this] def unbind[M <: Module : Manifest]: Unit = macro Macros.unbindS[M]
-	protected[this] def unchecked_unbind[M <: Module : Manifest]: Unit = {
-		manager.moduleUnbind[M](this)
-	}
-	protected[this] def unbind[M <: Module : Manifest](s: M): Unit = {
-		manager.moduleUnbind[M](s.getClass.asInstanceOf[Class[M]], this)
-	}
 	protected[this] final def bindSync[M <: Module : Manifest]: M = macro Macros.bindSync[M]
 	protected[this] def unchecked_bindSync[M <: Module : Manifest]: M = {
 		tryBind[M](true)
 	}
-	protected[this] def onModuleBound(module: Module, sync: Boolean): Unit = {}
-	protected[this] def onModuleUnbound(module: Module): Unit = {}
+	protected[this] def unbindSelf: Unit = {
+		tryUnbind[this.type]()
+	}
+	protected[this] def unbind[M <: Module : Manifest]: Unit = macro Macros.unbindS[M]
+	protected[this] def unchecked_unbind[M <: Module : Manifest]: Unit = {
+		tryUnbind[M]()
+	}
+	protected[this] def unbind[M <: Module : Manifest](s: M): Unit = {
+		tryUnbind[M](s.getClass.asInstanceOf[Class[M]])
+	}
+	protected[this] def onModuleBound(module: Module, sync: Boolean): Unit = ()
+	protected[this] def onModuleUnbound(module: Module, sync: Boolean): Unit = ()
 
 	/* LIFECYCLE USER API */
 
@@ -128,6 +123,7 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 
 	/* LIFECYCLE CALLBACKS to override */
 
+	protected[this] def onCreated(): Unit = ()
 	protected[this] def onActivatingStart(initial: Boolean): Unit = ()
 	/** @return true - if activation is finished. false - if continue activation */
 	protected[this] def onActivatingProgress(initial: Boolean, durationSec: Int): Boolean = true
@@ -144,7 +140,7 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 	protected[this] def onDestroy(): Unit = ()
 
 	protected[this] def onConfigurationChanged(newConfig: Configuration): Unit = ()
-	protected[this] def onTrimMemory(level: Int): Unit = ()
+	protected[this] def onTrimMemory(state: MemoryState): Unit = ()
 
 
 	/* SERVICE USER API */
@@ -172,7 +168,7 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 		if (inServingState) Option(code) else None
 	}
 	protected[this] def serveTry[T](code: => T): Try[T] = {
-		if (inServingState) Try(code) else Failure(ModuleServiceException())
+		if (inServingState) Try(code) else Failure(ModuleServiceException(_state))
 	}
 	protected[this] def serveAsync[T](code: => T)(implicit futureContext: FutureContext): FutureX[T] = {
 		requestAdd(new ModuleRequest[T].task(code))
@@ -196,8 +192,8 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 
 
 	/* EVENT API */
-	protected[this] def fireEvent[T <: ModuleEventListener : Manifest](e: ModuleEvent[T], module: Module = null): Unit = {
-		(if (module == null) bindings else List(module)).foreach {
+	protected[this] def fireEvent[T <: EventListenerModule : Manifest](e: ModuleEvent[T], modules: Module*): Unit = {
+		(if (modules.isEmpty) bindings else modules).foreach {
 			case m: T => try e.onFired(m) catch loggedE
 			case _ =>
 		}
@@ -221,8 +217,8 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 
 	/* MISC USER API */
 
-	def systemService[T](contextServiceName: String): Option[T] = {
-		try Option(appContext.getSystemService(contextServiceName).asInstanceOf[T]) catch loggedE(None)
+	protected[this] def systemService[T](contextServiceName: String): T = {
+		Modules.systemService(contextServiceName)
 	}
 	def dumpState(): String = s"state= ${state}; bindings= ${bindings.size};  syncChildren= ${syncChildren.size};  syncParents= ${syncParents.size}; requests= ${requests.size};  passiveMode= $standby;  extremCycle? ${initialising || terminating}"
 
@@ -232,10 +228,9 @@ trait Module extends LifeCycleSubSystem with RelationsSubSystem with ServiceSubS
 		if (!isAfterAbort) Prefs(moduleID) = 1
 	}
 
-	private[app] def trimMemory(level: Int): Unit = {
-		import ComponentCallbacks2._
-		if (level == TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_RUNNING_CRITICAL) asyncVars.foreach(_.releaseValue())
-		try onTrimMemory(level) catch loggedE
+	private[app] def trimMemory(state: MemoryState): Unit = {
+		if (state <= MemoryState.CRITICAL) asyncVars.foreach(_.releaseValue())
+		try onTrimMemory(state) catch loggedE
 	}
 	private[app] def configurationChanged(newConfig: Configuration): Unit = {
 		try onConfigurationChanged(newConfig) catch loggedE
@@ -274,12 +269,12 @@ trait ServiceSubSystem {
 		if (isAlive) {
 			val first = requests.isEmpty
 			requests += request
-			if (first && !servePaused) {
+			if (!servePaused) {
 				if (_state == SERVING) request.activate()
-				else if (_state == STANDBY) updateState(REQ_FIRST)
+				else if (first && state == STANDBY) updateState(REQ_FIRST)
 			}
 		}
-		else request.cancel(ModuleServiceException())
+		else request.cancel(ModuleServiceException(_state))
 		request
 	}
 	private[app] def requestComplete(fx: ModuleRequest[_]): Unit = {
@@ -313,14 +308,28 @@ trait RelationsSubSystem {
 	protected[this] val bindings = mutable.Set[Module]()
 	protected[this] val syncChildren = mutable.Set[Module]()
 	protected[this] val syncParents = mutable.Set[Module]()
+	protected[this] var constrParents: mutable.Set[Module] = _
 
 	/* INTERNAL API */
 
 	private[app] def tryBind[M <: Module : Manifest](sync: Boolean = false): M = {
-		try manager.moduleBind[M](this, sync)
+		try {
+			val parent = manager.moduleBind[M](this, sync)
+			if (!constructed) {
+				if (constrParents == null) constrParents = mutable.Set[Module]()
+				constrParents.add(parent)
+			}
+			parent
+		}
 		catch {
-			case e: ModuleBindingException => handleError(e); null.asInstanceOf[M]
-			case e: Throwable => handleError(new ModuleBindingException(implicitly[Manifest[M]].runtimeClass, e)); null.asInstanceOf[M]
+			case e: ModuleBindingException => throw e //handleError(e); null.asInstanceOf[M]
+			case e: Throwable => throw new ModuleBindingException(implicitly[Manifest[M]].runtimeClass, e) //handleError(new ModuleBindingException(implicitly[Manifest[M]].runtimeClass, e)); null.asInstanceOf[M]
+		}
+	}
+	private[app] def tryUnbind[M <: Module : Manifest](clas: Class[M] = null): Unit = {
+		val parentOpt = if (clas == null) manager.moduleUnbind[M](this) else manager.moduleUnbind[M](clas, this)
+		if (!constructed && constrParents != null && parentOpt.nonEmpty) {
+			constrParents.remove(parentOpt.get)
 		}
 	}
 	private[app] def bindingAdd(binding: Module, sync: Boolean): Unit = if (!bindings.contains(binding)) {
@@ -328,12 +337,12 @@ trait RelationsSubSystem {
 		if (isAlive) b.detectCyclicBinding(this, b :: Nil) match {
 			case Nil => val first = bindings.isEmpty
 				bindings += b
-				if (first) updateState(BIND_FIRST)
 				if (sync && b.ne(this)) syncChildAdd(b) else syncChildRemove(b)
-				try onModuleBound(b, sync) catch loggedE
+				if (first) updateState(BIND_FIRST)
+				if (b.constructed) try onModuleBound(b, sync) catch loggedE
 			case trace => throw new CyclicBindingException(getClass, trace.map(_.moduleID).mkString(", "))
 		}
-		else throw new DeadModuleBindingException(getClass)
+		else throw new DeadBindingException(getClass)
 	}
 	private[app] def detectCyclicBinding(par: Module, trace: List[Module]): List[Module] = {
 		if (this != par) bindings.foreach { chld =>
@@ -342,12 +351,15 @@ trait RelationsSubSystem {
 		}
 		Nil
 	}
+	private[app] def onChildConstructed(child: Module): Unit = {
+		try onModuleBound(child, syncChildren.contains(child)) catch loggedE
+	}
 	private[app] def bindingRemove(binding: Module): Unit = {
 		val b = if (binding == null) this else binding
 		if (bindings.remove(b)) {
 			if (bindings.isEmpty) updateState(BIND_LAST)
-			syncChildRemove(b)
-			try onModuleUnbound(b) catch loggedE
+			val sync = syncChildRemove(b)
+			if (b.constructed) try onModuleUnbound(b, sync) catch loggedE
 		}
 		else if (hasPredecessor && b.isPredecessorOf(this)) {
 			hasPredecessor = false
@@ -359,9 +371,9 @@ trait RelationsSubSystem {
 		m.syncParentAdd(this)
 		updateState(CH_ADD)
 	}
-	private[this] def syncChildRemove(m: Module): Unit = if (syncChildren.remove(m)) {
-		m.syncParentRemove(this)
-		updateState(CH_DEL)
+	private[this] def syncChildRemove(m: Module): Boolean = syncChildren.remove(m) match {
+		case true => m.syncParentRemove(this); updateState(CH_DEL); true
+		case false => false
 	}
 	private[app] def syncParentAdd(m: Module): Unit = {
 		syncParents.add(m)
@@ -380,18 +392,28 @@ trait RelationsSubSystem {
 
 protected[app] trait LifeCycleSubSystem {
 	this: Module =>
-	import StateChangeCause._
 	import ModuleState._
-	private[app] var _state: StateValue = STANDBY
+	import StateChangeCause._
+	private[app] var _state: ModuleState = STANDBY
 	private[app] var _failure: Throwable = null
 	private[app] var standby = false
 	private[app] var activatingPaused = 0
+	private[app] var constructed = false
 	private[app] var initialising = true
 	private[app] var terminating = false
 	private[app] var expectUpdate = false
 	private[app] var reactivating = 0
 	private[this] var progressStartTime = 0L
 
+	private[app] def onConstructed(): this.type = {
+		constructed = true
+		logW(s"[$moduleID]:  CONSTRUCTED")
+		if (constrParents != null) constrParents.foreach(_.onChildConstructed(this))
+		constrParents = null
+		onCreated()
+		this
+	}
+	
 	/* CHECK STATE INTERNAL API */
 
 	private[app] def updateState(cause: StateChangeCause, delay: Int = 0): Unit = lock synchronized {
@@ -451,16 +473,16 @@ protected[app] trait LifeCycleSubSystem {
 	}
 
 	/* CHANGE STATE INTERNAL API */
-	
+
 	private[app] def onUpdateState(): Boolean = lock synchronized {
 		//						logV(s"                  UPDATE [$moduleID]   state= ${_state}; canDestroy? $canDestroy;   canDeactivate? $canDeactivate;  canActivate? $canActivate")
 		expectUpdate = false
 		val prev = _state
 		//
 		_state match {
-			case ACTIVATING => activated_>>
-			case SERVING => if (deactivate_? && checkTerminating) deactivate_>>
-			case DEACTIVATING => deactivated_>>
+			case ACTIVATING => if (activated_?) activated_>>
+			case SERVING => if (deactivate_? && notTerminating) deactivate_>>
+			case DEACTIVATING => if (deactivated_?) deactivated_>>
 			case STANDBY => if (destroy_?) destroy_>> else if (activate_? && hasPermissions) activate_>>
 			case FAILED => if (nonBound) destroy_>>
 			case DESTROYED =>
@@ -472,7 +494,7 @@ protected[app] trait LifeCycleSubSystem {
 		else if (_state == DEACTIVATING || (_state == ACTIVATING && activatingNonPaused)) updateState(null, calcBackoff())
 		changed
 	}
-	private[this] def state_=(v: StateValue): Unit = {
+	private[this] def state_=(v: ModuleState): Unit = {
 		logW(s"[$moduleID]:  ${_state} >  $v")
 		_state = v
 	}
@@ -481,12 +503,12 @@ protected[app] trait LifeCycleSubSystem {
 		startFutureContext()
 		trying(onActivatingStart(initialising))
 		progressStartTime = deviceNow()
-		activated_>>
+		if (activated_?) activated_>>
 	}
 	private[this] def activated_? : Boolean = activatingNonPaused && {
 		trying(onActivatingProgress(initialising, (progressDelay / 1000).toInt))
 	}
-	private[this] def activated_>> : Unit = if (activated_?) {
+	private[this] def activated_>> : Unit = {
 		state = SERVING
 		trying(onActivatingFinish(initialising))
 		resumeRequests()
@@ -500,12 +522,12 @@ protected[app] trait LifeCycleSubSystem {
 		if (!servePaused && !terminating) fireEvent(new UnableToServeEvent)
 		trying(onDeactivatingStart(terminating))
 		progressStartTime = deviceNow()
-		deactivated_>>
+		if (deactivated_?) deactivated_>>
 	}
 	private[this] def deactivated_? : Boolean = {
 		trying(onDeactivatingProgress(terminating, (progressDelay / 1000).toInt))
 	}
-	private[this] def deactivated_>> : Unit = if (deactivated_?) {
+	private[this] def deactivated_>> : Unit = {
 		state = STANDBY
 		trying(onDeactivatingFinish(terminating))
 		quitFutureContext(true)
@@ -552,7 +574,7 @@ protected[app] trait LifeCycleSubSystem {
 		bindings.clear()
 		asyncVars.clear()
 	}
-	private[this] def checkTerminating: Boolean = bindings.nonEmpty || {
+	private[this] def notTerminating: Boolean = bindings.nonEmpty || {
 		try onBeforeTerminalDeactivating() catch loggedE
 		deactivate_?
 	}
@@ -569,7 +591,11 @@ protected[app] trait LifeCycleSubSystem {
 		delay * mult
 	}
 	private[app] def hasPermissions: Boolean = !initialising || {
-		val failed = permissions.filter(p => p.typ == Permission.CRITICAL && !hasPermission(p.name))
+		val failed = permissions.filter { p =>
+			val denied = !hasPermission(p.name)
+			if (denied && p.typ == Permission.OPTIONAL) logW(s"Module ${getClass.getName} requires ${p.name}")
+			denied && p.typ == Permission.CRITICAL
+		}
 		if (failed.nonEmpty) fail(ModulePermissionException(failed.map(_.name).mkString(", "), getClass))
 		_state != FAILED
 	}
@@ -606,10 +632,10 @@ class ModuleRequest[T](implicit module: Module) extends FutureX[T] {
 
 /* EVENTS */
 
-trait ModuleEventListener
+trait EventListenerModule extends Module
 
 
-abstract class ModuleEvent[T <: ModuleEventListener : Manifest] {
+abstract class ModuleEvent[T <: EventListenerModule : Manifest] {
 	implicit val source: Module
 	def onFired(listener: T): Unit
 }
@@ -622,7 +648,7 @@ abstract class ModuleEvent[T <: ModuleEventListener : Manifest] {
 
 /* SERVABILITY EVENT */
 // TODO
-trait ModuleServabilityListener extends ModuleEventListener {
+trait ModuleServabilityListener extends EventListenerModule {
 	def onAbleToServe(e: AbleToServeEvent)
 	def onUnableToServe(e: UnableToServeEvent)
 }

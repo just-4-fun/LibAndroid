@@ -48,7 +48,7 @@ object FutureX {
 sealed class FutureXBase[T] extends Runnable {
 	import FutureX._
 	import State._
-	var id: String = ""
+	var id: Any = ""
 	protected[this] var _state = NONE
 	protected[this] var _context: FutureContext = ThreadPoolContext
 	protected[this] var _task: FutureTask[T] = null
@@ -59,6 +59,13 @@ sealed class FutureXBase[T] extends Runnable {
 	/* USAGE */
 	def state: State.Value = _state
 	def context: FutureContext = _context
+	def isActivated = state > NONE
+	def isExecuting = state == EXEC
+	def isDone = state == DONE
+
+	/** Override to execute containing code. Use either task(...) or override execute. */
+	//TODO return T
+	def execute(): Try[T] = Failure(new Exception(s"There is nothing to execute in this ${getClass.getSimpleName}"))
 
 	def task(t: FutureTask[T])(implicit c: FutureContext): this.type = {
 		_context = c
@@ -92,6 +99,7 @@ sealed class FutureXBase[T] extends Runnable {
 		}
 	}
 
+
 	def onCompleteInMainThread[U](f: Try[T] => U): Unit = future.onComplete(f)(MainThreadContext)
 	def onSuccessInMainThread[U](pf: PartialFunction[T, U]): Unit = future.onSuccess(pf)(MainThreadContext)
 	def onFailureInMainThread[U](pf: PartialFunction[Throwable, U]): Unit = future.onFailure(pf)(MainThreadContext)
@@ -114,7 +122,7 @@ sealed class FutureXBase[T] extends Runnable {
 		}
 		if (exec) {
 			if (_task != null) _task.execute(this)
-			else finishExecute(Failure(new Exception("Task is null")))
+			else finishExecute(try execute() catch {case e: Throwable=> Failure(e)})
 		}
 		else if (_state != DONE) finishExecute(Failure(new IllegalStateException(s"Can't execute in state ${_state}")))
 	}

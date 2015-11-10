@@ -1,6 +1,7 @@
 package just4fun.android.core.utils
 
 import android.content.Context
+import android.os.SystemClock
 
 object ATools {
 	def dp2pix(dp: Int)(implicit context: Context): Int = {

@@ -70,7 +70,7 @@ class Module_1 extends TestModule {
 	startAfter = 1000
 	stopAfter = 1000
 
-	override protected[this] def permissions: Seq[PermissionExtra] = Permissions().map(PermissionCritical(_))
+	override protected[this] def permissions = Permissions().map(PermissionCritical(_))
 
 	def useCamera(): Unit = serveAsync {
 		requestPermission(android.Manifest.permission.CAMERA).onComplete{

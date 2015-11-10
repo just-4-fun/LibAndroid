@@ -1,23 +1,17 @@
 package just4fun.android.core.app
 
-import java.lang.Thread.UncaughtExceptionHandler
-
-import android.content.pm.PackageManager
-import android.os.{Process, Build, Bundle}
+import android.app.{Activity, Application, Notification}
+import android.content.res.Configuration
+import android.content.{Context, Intent}
+import android.os.{Build, Process}
+import android.util.Log
+import just4fun.android.core.LibRoot
 import just4fun.android.core.vars.Prefs
-import just4fun.utils.Utils._
+import just4fun.utils.logger.Logger._
 import just4fun.utils.logger.{Logger, LoggerConfig}
 
-import scala.StringBuilder
 import scala.collection.mutable
 import scala.language.experimental.macros
-
-import android.app.{Activity, Application, Notification}
-import android.content.{Intent, Context}
-import android.content.res.Configuration
-import android.util.Log
-import just4fun.android.core.{LibRoot, BuildConfig}
-import Logger._
 
 /** USAGE
   - extend Application with [[Modules]] trait
@@ -47,17 +41,18 @@ object Modules {
 	private[app] var aManager: ActivityManager = null
 	private var firstRun = false
 	private[app] lazy val libResources = i.libResources
-
+	private val singletons = mutable.Set[AppSingleton]()
+	
 	/* PUBLIC */
 	val processID = Process.myPid()
-	val processUID  = Process.myUid()
+	val processUID = Process.myUid()
 	lazy val context: Context = i
 	def uiContext = aManager.uiContext
 	def uiVisible = aManager.uiVisible
 	def uiAlive = aManager.uiAlive
 	def isFirstRun = firstRun
-
-
+	
+	
 	def use[M <: Module : Manifest](implicit context: Context): M = macro Macros.use[M]
 	def unchecked_use[M <: Module : Manifest](implicit context: Context): M = {
 		mManager.moduleUse[M]
@@ -85,8 +80,17 @@ object Modules {
 		KeepAliveService.stopForeground(removeNotification)
 	}
 	// todo def setStatusNotification
-
-	/* INTERNAL */
+	
+	/* LOCAL LIB API */
+	def systemService[T](contextServiceName: String): T = {
+		context.getSystemService(contextServiceName).asInstanceOf[T]
+	}
+	def hasPermission(pm: String): Boolean = {
+		mManager.hasPermission(pm)
+	}
+	
+	
+	/* INTERNAL API */
 	private def onCreate(app: Modules): Unit = {
 		i = app
 		//
@@ -97,6 +101,20 @@ object Modules {
 		mManager = new ModuleManager(i)
 		aManager = new ActivityManager(i, mManager)
 		mManager.checkRestore()
+	}
+	private def onInit(): Unit = {}
+	private def onTrimMemory(level: Int): Unit = {
+		MemoryState.level2state(level) match {
+			case null =>
+			case state => mManager.trimMemory(state)
+				singletons.foreach(_.trimMemory(state))
+		}
+	}
+	private def onExit(): Unit = {
+		singletons.foreach(_.trimMemory(MemoryState.DROP))
+	}
+	private[app] def addSingleton(s: AppSingleton): Unit = {
+		singletons.add(s)
 	}
 }
 
@@ -110,14 +128,13 @@ object Modules {
 trait Modules extends Application {
 	/** Override to adapt library resources to your app. */
 	val libResources: LibResources = new LibResources
-	/** Value-class replaces Key-class when instantiating [[Module]]. Can be added by overriding. */
-	protected[app] val preferedModuleClasses: mutable.HashMap[Class[_], Class[_]] = null
 
 	LoggerConfig.debug(true).logDef(Log.println(_, _, _))
-
-
-	protected[this] def onExit(): Unit = {}
-
+	
+	
+	protected[this] def onModulesInit(): Unit = {}
+	protected[this] def onModulesExit(): Unit = {}
+	
 	override def onCreate(): Unit = {
 		super.onCreate()
 		LoggerConfig.debug(isDebug)
@@ -127,14 +144,20 @@ trait Modules extends Application {
 		checkRequiredManifestEntries()
 		Modules.onCreate(this)
 	}
-
-	override def onTrimMemory(level: Int): Unit = Modules.mManager.onTrimMemory(level)
-
+	
+	override def onTrimMemory(level: Int): Unit = Modules.onTrimMemory(level)
+	
 	override def onConfigurationChanged(newConfig: Configuration): Unit = Modules.mManager.onConfigurationChanged(newConfig)
 
-
-	private[app] def exit(): Unit = onExit()
-
+	private[app] def modulesInit(): Unit = {
+		Modules.onInit()
+		try onModulesInit() catch loggedE
+	}
+	private[app] def modulesExit(): Unit = {
+		try onModulesExit() catch loggedE
+		Modules.onExit()
+	}
+	
 	private[this] def isDebug: Boolean = {
 		try {
 			val clas = Class.forName(getPackageName + ".BuildConfig")
@@ -160,3 +183,27 @@ trait Modules extends Application {
 
 
 
+/* APP LIFECYCLE EVENT LISTENER */
+object MemoryState extends Enumeration {
+	import android.content.ComponentCallbacks2._
+	type MemoryState = Value
+	val DROP, CRITICAL, LOW, MODERATE, UI_HIDDEN = Value
+	
+	private[app] def level2state(level: Int): MemoryState = level match {
+		case TRIM_MEMORY_UI_HIDDEN => UI_HIDDEN
+		case TRIM_MEMORY_RUNNING_CRITICAL | TRIM_MEMORY_COMPLETE => CRITICAL
+		case TRIM_MEMORY_RUNNING_LOW | TRIM_MEMORY_MODERATE => LOW
+		case TRIM_MEMORY_RUNNING_MODERATE | TRIM_MEMORY_BACKGROUND => MODERATE
+		case _ => null
+	}
+}
+
+/** Use only lazy vars that can be reset and reinitialized again.*/
+trait AppSingleton {
+	import MemoryState._
+	Modules.addSingleton(this)
+
+	protected[this] def onTrimMemory(state: MemoryState): Unit
+	
+	private[app] def trimMemory(state: MemoryState) = { try onTrimMemory(state) catch loggedE }
+}
